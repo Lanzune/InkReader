@@ -15,26 +15,31 @@
 
 ## 待完成
 
-- [ ] 初始化本地 git 仓库（`main`）
-- [ ] 添加 `.gitattributes`
-- [ ] 生成 Gradle wrapper（Gradle 8.14；复用本机缓存）
-- [ ] 创建 `local.properties`（不提交），固定 SDK 路径
-- [ ] 创建最小 Gradle 工程：`app`、`kernel/api`、`kernel/core`
-- [ ] 锁定 AGP / Kotlin / Compose / compileSdk / targetSdk 版本
-- [ ] 添加最小 `MainActivity`，显示项目名称和“打开书籍”占位
-- [ ] 添加一个 JVM 单元测试
-- [ ] `:app:assembleDebug` 成功
-- [ ] 检查 APK 无 `INTERNET` 权限
+- [x] 初始化本地 git 仓库（`main`）
+- [x] 添加 `.gitattributes`
+- [x] 生成 Gradle wrapper（Gradle 8.14；复用本机缓存）
+- [x] 创建 `local.properties`（不提交），固定 SDK 路径
+- [x] 创建最小 Gradle 工程：`app`、`kernel/api`、`kernel/core`
+- [x] 锁定 AGP 8.13.2 / Kotlin 2.4.20 / Compose BOM 2025.10.01 / compileSdk 36 / targetSdk 36
+- [x] 添加最小 `MainActivity`，显示项目名称和内核版本
+- [x] 添加一个 JVM 单元测试
+- [x] `:app:assembleDebug` 成功
+- [x] 检查 APK 无 `INTERNET` 权限
+- [x] 16 KB 对齐检查通过
 - [ ] 完成 M0 首次提交并打标签 `m0-bootstrap`
+- [ ] 项目所有者安装 debug APK，确认启动
 - [ ] 项目所有者提供 GitHub 信息后配置 remote 并推送
 
 ## 技术参数基线
 
 - `minSdk 26`
 - `targetSdk 36`
-- `compileSdk 36`（已安装 android-36）
+- `compileSdk 36`
 - JDK 21（`C:\Users\34553\scoop\apps\openjdk21\current`）
 - Gradle 8.14
+- AGP 8.13.2
+- Kotlin 2.4.20
+- Compose BOM 2025.10.01
 - 临时 applicationId：`com.inkreader.app`（发布前可改）
 - 不申请 `INTERNET`
 
@@ -42,8 +47,12 @@
 
 ```powershell
 $env:JAVA_HOME = 'C:\Users\34553\scoop\apps\openjdk21\current'
-.\gradlew.bat :app:assembleDebug
+$env:GRADLE_USER_HOME = 'C:\Project\DeepSeekHarness\inkreader\.gradle-user-home'
+$env:ANDROID_USER_HOME = 'C:\Project\DeepSeekHarness\inkreader\.android-user-home'
+.\gradlew.bat :app:assembleDebug :app:testDebugUnitTest --no-daemon
 ```
+
+产物：`app/build/outputs/apk/debug/app-debug.apk`。
 
 ## 退出标准
 

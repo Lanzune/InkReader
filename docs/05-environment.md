@@ -50,16 +50,24 @@ C:\Users\34553\scoop\apps\android-studio\current\bin\studio64.exe
 C:\Users\34553\.gradle\wrapper\dists\gradle-8.14-all\c2qonpi39x1mddn7hk5gh9iqj\gradle-8.14\bin\gradle.bat
 ```
 
-## 4. M0 需要补齐的项目级配置
+## 4. M0 项目级配置
 
-1. 生成项目 Gradle wrapper（目标 Gradle 8.14）。
+已完成：
+
+1. 生成项目 Gradle wrapper（Gradle 8.14）。
 2. 创建 `local.properties`，设置 `sdk.dir=C:\\Users\\34553\\AppData\\Local\\Android\\Sdk`；该文件不提交。
-3. 构建时设置 `JAVA_HOME` 为 JDK 21，不使用默认 JDK 25。
-4. 选择并锁定 AGP/Kotlin/Compose 版本；以实际依赖解析和构建结果为准。
-5. 建立最小 `app` 模块、`kernel/api`、`kernel/core` 的 Gradle 结构。
+3. 构建时使用 JDK 21，不使用默认 JDK 25。
+4. 锁定 AGP 8.13.2、Kotlin 2.4.20、Compose BOM 2025.10.01。
+5. 建立 `app`、`kernel/api`、`kernel/core` 的 Gradle 结构。
 6. 构建 debug APK，检查 manifest 中没有 `INTERNET` 权限。
-7. 初始化 git 本地仓库，完成 M0 首次提交。
-8. 项目所有者提供 GitHub 仓库信息后配置 `origin` 并推送。
+7. 初始化 git 本地仓库并完成 M0 首次提交。
+8. 生成项目内调试签名，避免写用户 `.android` 目录。
+
+待完成：
+
+- 项目所有者安装 debug APK，确认启动。
+- 项目所有者提供 GitHub 仓库信息后配置 `origin` 并推送。
+- 视 Kotlin 版本计划把 Gradle 从 8.14 升级到 8.14.4（当前构建成功）。
 
 ## 5. 运行时验证缺口
 
@@ -82,3 +90,38 @@ C:\Users\34553\.gradle\wrapper\dists\gradle-8.14-all\c2qonpi39x1mddn7hk5gh9iqj\g
 ## 7. 只读审计声明
 
 本次审计没有修改 Android SDK、Android Studio、JDK、`.gradle`、`.android`、Git 配置或任何项目外文件；只读取了目录结构、版本文件和 Git 全局身份。
+
+## 8. M0 实际构建结果（2026-11-06）
+
+构建使用项目内缓存，避免依赖外部 Gradle 目录：
+
+```powershell
+$env:JAVA_HOME = 'C:\Users\34553\scoop\apps\openjdk21\current'
+$env:GRADLE_USER_HOME = 'C:\Project\DeepSeekHarness\inkreader\.gradle-user-home'
+.\gradlew.bat :app:assembleDebug :app:testDebugUnitTest --no-daemon
+```
+
+| 项 | 结果 |
+|---|---|
+| Gradle | 8.14（wrapper） |
+| AGP | 8.13.2 |
+| Kotlin | 2.4.20 |
+| Compose BOM | 2025.10.01 |
+| compileSdk / targetSdk / minSdk | 36 / 36 / 26 |
+| JDK | Temurin 21.0.2 |
+| `assembleDebug` | ✅ 成功 |
+| `testDebugUnitTest` | ✅ 成功（1 个冒烟测试） |
+| Debug APK | `app/build/outputs/apk/debug/app-debug.apk` |
+| APK 大小 | 11,200,063 bytes（约 10.68 MiB） |
+| 权限检查 | ✅ 无 `INTERNET`；仅 AndroidX 内部动态接收器权限 |
+| 16 KB 对齐 | ✅ `zipalign -c -P 16 -v 4` 通过 |
+| 真机运行 | ⏳ 未验证；当前无 AVD/系统镜像，等待项目所有者连接设备 |
+
+构建过程中已把调试签名改为项目内 `.debug/debug.keystore`（被 git 忽略），避免写入 `C:\Users\34553\.android` 的沙箱权限问题。
+
+已知警告：
+
+- Kotlin 插件提示 Gradle 8.14 将在 Kotlin 2.5 前升级到 8.14.4；当前构建成功，后续可升级 wrapper。
+- AGP 尝试写 `C:\Users\34553\.android\analytics.settings` 被沙箱拒绝，仅是分析数据，不影响构建；可在构建时设置项目内 `ANDROID_USER_HOME` 消除。
+- 无系统镜像/AVD；运行验证需真实手机或经批准安装模拟器镜像。
+

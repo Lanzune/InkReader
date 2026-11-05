@@ -13,11 +13,13 @@
 | 目录骨架 | ✅ 完成 | app/kernel/formats/plugin-host/sdk 等 |
 | 文档体系 | ✅ 第一批完成 | 章程、基线、模块地图、路线图、工作流、环境、质量 |
 | 环境审计 | ✅ 完成（只读） | SDK/NDK/JDK21/Gradle/Git 均可用；无 AVD/系统镜像 |
-| 本地 git | ⏳ 待初始化 | Git 身份已就绪 |
-| Gradle 工程 | ⏳ 待创建 | M0 下一步 |
-| debug APK | ⏳ 待构建 | 先 CLI，无真机也可构建 |
+| 本地 git | ✅ 完成 | `main` 根提交 `f07421c` |
+| Gradle 工程 | ✅ 完成 | AGP 8.13.2 / Kotlin 2.4.20 / Compose BOM 2025.10.01 |
+| debug APK | ✅ 构建成功 | 10.68 MiB；无 INTERNET；16 KB 对齐通过 |
+| 单元测试 | ✅ 通过 | `testDebugUnitTest` 1 个冒烟测试 |
+| 真机冒烟 | ⏳ 等待安装 | 需要项目所有者安装 APK 并确认启动 |
 | GitHub remote | ⏳ 等待信息 | 项目所有者稍后提供 |
-| 真机/模拟器 | ⏳ 待准备 | 无 AVD；建议真实手机 |
+| 模拟器/AVD | ⏳ 未准备 | 无 system image；优先真实手机 |
 
 ## 已完成的关键决策
 

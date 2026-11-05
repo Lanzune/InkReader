@@ -1,5 +1,8 @@
 # Android / Gradle
 .gradle/
+.gradle-user-home/
+.android-user-home/
+.kotlin/
 build/
 **/build/
 captures/
@@ -21,6 +24,7 @@ local.properties
 out/
 
 # Signing / secrets
+.debug/
 *.jks
 *.keystore
 keystore.properties
