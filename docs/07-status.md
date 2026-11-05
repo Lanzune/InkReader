@@ -13,7 +13,7 @@
 | 目录骨架 | ✅ 完成 | app/kernel/formats/plugin-host/sdk 等 |
 | 文档体系 | ✅ 第一批完成 | 章程、基线、模块地图、路线图、工作流、环境、质量 |
 | 环境审计 | ✅ 完成（只读） | SDK/NDK/JDK21/Gradle/Git 均可用；无 AVD/系统镜像 |
-| 本地 git | ✅ 完成 | `main`，M0 代码提交 `8ec2212` |
+| 本地 git | ✅ 完成 | `main`，M0 代码提交 `8ec2212`，文档提交 `64776d4`，标签 `m0-build` |
 | Gradle 工程 | ✅ 完成 | AGP 8.13.2 / Kotlin 2.4.20 / Compose BOM 2025.10.01 |
 | debug APK | ✅ 构建成功 | 10.68 MiB；无 INTERNET；16 KB 对齐；v2 签名通过 |
 | 单元测试 | ✅ 通过 | `testDebugUnitTest` 1 个冒烟测试 |
