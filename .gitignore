@@ -3,6 +3,7 @@
 .gradle-user-home/
 .android-user-home/
 .kotlin/
+artifacts/
 build/
 **/build/
 captures/
