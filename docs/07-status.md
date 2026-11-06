@@ -46,12 +46,12 @@
 | Ref | Commit |
 |---|---|
 | `origin/main` | `43422e5`（含 M2a 合并） |
-| `origin/feat/m2b-settings` | `237cd7a` |
-| `origin/feat/m2a` | `17dd42a` |
+| `origin/feat/m2b-settings` | `da6879c` |
 | `m2a-chapters` | `43422e5` |
 | `m2b-build` | `237cd7a` |
+| `m2b2-build` | `da6879c` |
 
-M2b 真机通过后，把 `feat/m2b-settings` 合并到 `main`，打 `m2-txt-reader` 标签并推送。
+M2b2 真机通过后，把 `feat/m2b-settings` 合并到 `main`，打 `m2-txt-reader` 标签并推送，然后进入 M3。
 
 ## 最近一次环境结论
 
