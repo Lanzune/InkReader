@@ -27,8 +27,8 @@
 - [x] 检查 APK 无 `INTERNET` 权限
 - [x] 16 KB 对齐检查通过
 - [x] 完成 M0 代码提交并打标签 `m0-build`
-- [ ] 项目所有者安装 debug APK，确认启动
-- [ ] 项目所有者提供 GitHub 信息后配置 remote 并推送
+- [x] 项目所有者安装 debug APK，确认启动
+- [ ] 项目所有者完成 GitHub 推送认证，配置 remote 并推送
 
 ## 技术参数基线
 

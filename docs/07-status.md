@@ -1,25 +1,24 @@
 # 当前状态
 
-**更新时间：** 2026-11-05 23:55（Asia/Shanghai）  
-**当前阶段：** M0 — 项目骨架与开发环境  
-**下一阶段：** M1 — 垂直切片
+**更新时间：** 2026-11-06  
+**当前阶段：** M1 — 垂直切片（M0 已通过真机启动）  
+**下一阶段：** M1a 内核 + TXT 阅读链路
 
 ## 阶段看板
 
 | 项目 | 状态 | 备注 |
 |---|---|---|
+| M0 骨架 | ✅ 完成 | 真机启动通过（一加 Ace 5 / ColorOS 16.0.10） |
 | 技术方案报告 | ✅ 完成 | Word 46 页 + Markdown 主稿 |
 | 项目文件夹 | ✅ 完成 | `inkreader/`，内部代号 |
 | 目录骨架 | ✅ 完成 | app/kernel/formats/plugin-host/sdk 等 |
 | 文档体系 | ✅ 第一批完成 | 章程、基线、模块地图、路线图、工作流、环境、质量 |
-| 环境审计 | ✅ 完成（只读） | SDK/NDK/JDK21/Gradle/Git 均可用；无 AVD/系统镜像 |
-| 本地 git | ✅ 完成 | `main`，M0 代码提交 `8ec2212`，文档提交 `64776d4`，标签 `m0-build` |
+| 环境审计 | ✅ 完成（只读） | SDK/NDK/JDK21/Gradle/Git 均可用 |
+| 本地 git | ✅ 完成 | `main`，标签 `m0-build`；M0 真机通过 |
 | Gradle 工程 | ✅ 完成 | AGP 8.13.2 / Kotlin 2.4.20 / Compose BOM 2025.10.01 |
-| debug APK | ✅ 构建成功 | 10.68 MiB；无 INTERNET；16 KB 对齐；v2 签名通过 |
-| 单元测试 | ✅ 通过 | `testDebugUnitTest` 1 个冒烟测试 |
-| 真机冒烟 | ⏳ 等待安装 | 需要项目所有者安装 APK 并确认启动 |
-| GitHub remote | ⏳ 等待信息 | 项目所有者稍后提供 |
-| 模拟器/AVD | ⏳ 未准备 | 无 system image；优先真实手机 |
+| debug APK | ✅ 构建/真机通过 | 无 INTERNET；16 KB 对齐；v2 签名 |
+| GitHub remote | ⚠️ 已添加 | `https://github.com/Lanzune/InkReader.git`；推送待本机认证 |
+| M1 垂直切片 | 🚧 进行中 | 先做 M1a：内核 + TXT + 阅读视图 |
 
 ## 已完成的关键决策
 
@@ -32,19 +31,19 @@
 
 ## 下一步（按顺序）
 
-1. 初始化本地 git 仓库并完成 M0 首次提交。
-2. 生成 Gradle wrapper，创建最小 `app` / `kernel/api` / `kernel/core`。
-3. 用 JDK 21 + 本机 SDK 构建 debug APK。
-4. 检查 manifest 无 `INTERNET`。
-5. 项目所有者提供 GitHub 信息后配置 remote 并推送。
-6. 开始 M1：内核 API、QuickJS 宿主、TXT、最小阅读视图和示例插件。
+1. 完成 GitHub 推送认证，推送 `main` 与 `m0-build` 标签。
+2. 在 `feat/m1-vertical-slice` 分支实现 M1a：内核 API、TXT、阅读视图、SAF 打开本地文件。
+3. 构建 APK，项目所有者真机验证打开 TXT 和翻页。
+4. M1b：接入 QuickJS 示例主题/命令插件。
+5. M1 全部验收后合并回 `main` 并打 `m1-vertical-slice` 标签。
 
 ## 阻塞与待定
 
-| 项 | 是否阻塞 M0 | 说明 |
+| 项 | 是否阻塞 M1 | 说明 |
 |---|---|---|
-| 无 AVD/系统镜像 | 不阻塞构建 | 阻塞运行时验证；优先用真实手机 |
-| GitHub 仓库未提供 | 不阻塞本地开发 | 影响推送；稍后配置 |
+| GitHub 推送认证 | 不阻塞本地开发 | HTTPS 凭据未配置；主分支已添加 remote，推送待认证 |
+| 无 AVD/系统镜像 | 不阻塞构建 | 运行时验证用一加 Ace 5 真机 |
+| Android API 级别 | 不阻塞 | 截图显示 ColorOS 16.0.10；具体 API 待 `getprop` 补充 |
 | 正式名称/包名未定 | 不阻塞 | 暂用 `com.inkreader.app`，发布前改 |
 | 签名密钥未准备 | 不阻塞 | M7 前准备 |
 | 包名/应用图标/视觉设计 | 不阻塞 | M5 前完善 |
