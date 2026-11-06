@@ -33,6 +33,8 @@ class ReaderSurfaceView(context: Context) : View(context) {
     private var style: ReaderStyle = ReaderStyle()
     private var content: String = ""
     private var textLayout: StaticLayout? = null
+    private var renderedPageLayout: StaticLayout? = null
+    private var renderedPageKey: Int = -1
     private var pageStarts: IntArray = IntArray(0)
     private var currentPage: Int = 0
     private var pendingCharOffset: Int? = null
@@ -47,8 +49,8 @@ class ReaderSurfaceView(context: Context) : View(context) {
     private val contentHeight get() = (height - paddingTop - paddingBottom - dp(8)).coerceAtLeast(1)
 
     /** 每一页顶部/底部为字形 ascent/descent 预留的安全量，而不是只给整段布局首尾留。 */
-    private val pageTopInset get() = ceil(-textPaint.fontMetrics.top).toInt().coerceAtLeast(0)
-    private val pageBottomInset get() = ceil(textPaint.fontMetrics.bottom).toInt().coerceAtLeast(0)
+    private val pageTopInset get() = maxOf(dp(48), ceil(-textPaint.fontMetrics.top).toInt())
+    private val pageBottomInset get() = maxOf(dp(24), ceil(textPaint.fontMetrics.bottom).toInt())
     private val paginationHeight get() = (contentHeight - pageTopInset - pageBottomInset).coerceAtLeast(1)
 
     private val gestureDetector = GestureDetector(
@@ -83,9 +85,10 @@ class ReaderSurfaceView(context: Context) : View(context) {
 
     init {
         // 顶部预留控制栏/状态栏空间，底部额外留安全区，避免首尾行被裁切或贴近手势区。
-        setPadding(dp(style.horizontalPaddingDp), dp(96), dp(style.horizontalPaddingDp), dp(52))
+        setPadding(dp(style.horizontalPaddingDp), dp(96), dp(style.horizontalPaddingDp), dp(56))
         textPaint.textSize = sp(style.fontSizeSp)
         setBackgroundColor(theme.background)
+        renderedPageKey = -1
         isClickable = true
         isFocusable = true
     }
@@ -95,7 +98,8 @@ class ReaderSurfaceView(context: Context) : View(context) {
         val restoreOffset = currentCharOffset()
         style = newStyle
         textPaint.textSize = sp(style.fontSizeSp)
-        setPadding(dp(style.horizontalPaddingDp), dp(96), dp(style.horizontalPaddingDp), dp(52))
+        setPadding(dp(style.horizontalPaddingDp), dp(96), dp(style.horizontalPaddingDp), dp(56))
+        renderedPageKey = -1
         if (ready) {
             rebuildLayout(restoreOffset)
         }
@@ -107,6 +111,7 @@ class ReaderSurfaceView(context: Context) : View(context) {
         textPaint.color = theme.foreground
         setBackgroundColor(theme.background)
         currentPage = 0
+        renderedPageKey = -1
         ready = true
         pendingCharOffset = initialCharOffset.coerceAtLeast(0)
         if (width > 0 && height > 0) {
@@ -117,6 +122,7 @@ class ReaderSurfaceView(context: Context) : View(context) {
     fun goToCharOffset(charOffset: Int) {
         if (textLayout == null || pageStarts.isEmpty()) return
         currentPage = pageForOffset(charOffset)
+        renderedPageKey = -1
         invalidate()
         notifyPage()
     }
@@ -132,12 +138,14 @@ class ReaderSurfaceView(context: Context) : View(context) {
         theme = readerTheme
         textPaint.color = theme.foreground
         setBackgroundColor(theme.background)
+        renderedPageKey = -1
         invalidate()
     }
 
     fun nextPage(): Boolean {
         if (currentPage >= pageStarts.size - 1) return false
         currentPage += 1
+        renderedPageKey = -1
         invalidate()
         notifyPage()
         return true
@@ -146,6 +154,7 @@ class ReaderSurfaceView(context: Context) : View(context) {
     fun previousPage(): Boolean {
         if (currentPage <= 0) return false
         currentPage -= 1
+        renderedPageKey = -1
         invalidate()
         notifyPage()
         return true
@@ -167,10 +176,9 @@ class ReaderSurfaceView(context: Context) : View(context) {
 
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
-        val layout = textLayout ?: return
-        if (pageStarts.isEmpty()) return
+        val pageLayout = obtainPageLayout() ?: return
 
-        val startLine = pageStarts[currentPage.coerceIn(0, pageStarts.size - 1)]
+        // 只绘制当前页自己的文本布局，避免把上一页最后一行画进页首安全区。
         canvas.save()
         canvas.clipRect(
             contentLeft,
@@ -178,11 +186,8 @@ class ReaderSurfaceView(context: Context) : View(context) {
             contentLeft + contentWidth,
             contentTop + contentHeight,
         )
-        canvas.translate(
-            contentLeft.toFloat(),
-            (contentTop + pageTopInset - layout.getLineTop(startLine)).toFloat(),
-        )
-        layout.draw(canvas)
+        canvas.translate(contentLeft.toFloat(), (contentTop + pageTopInset).toFloat())
+        pageLayout.draw(canvas)
         canvas.restore()
     }
 
@@ -235,9 +240,49 @@ class ReaderSurfaceView(context: Context) : View(context) {
 
         textLayout = layout
         pageStarts = starts.toIntArray()
+        renderedPageLayout = null
+        renderedPageKey = -1
         currentPage = pageForOffset(restoreOffset)
         notifyPage()
         invalidate()
+    }
+
+    private fun obtainPageLayout(): StaticLayout? {
+        val fullLayout = textLayout ?: return null
+        if (pageStarts.isEmpty()) return null
+        if (renderedPageKey == currentPage && renderedPageLayout != null) {
+            return renderedPageLayout
+        }
+
+        val startLine = pageStarts[currentPage.coerceIn(0, pageStarts.size - 1)]
+        val endLine = if (currentPage + 1 < pageStarts.size) {
+            pageStarts[currentPage + 1]
+        } else {
+            fullLayout.lineCount
+        }
+        val start = fullLayout.getLineStart(startLine).coerceIn(0, content.length)
+        val end = if (endLine < fullLayout.lineCount) {
+            fullLayout.getLineStart(endLine)
+        } else {
+            content.length
+        }.coerceIn(start, content.length)
+
+        val slice = content.substring(start, end)
+        if (slice.isEmpty()) return null
+
+        val pageLayout = StaticLayout.Builder
+            .obtain(slice, 0, slice.length, textPaint, contentWidth)
+            .setAlignment(Layout.Alignment.ALIGN_NORMAL)
+            .setLineSpacing(0f, style.lineSpacingMultiplier)
+            .setIncludePad(true)
+            .setBreakStrategy(Layout.BREAK_STRATEGY_HIGH_QUALITY)
+            .setHyphenationFrequency(Layout.HYPHENATION_FREQUENCY_NORMAL)
+            .setTextDirection(TextDirectionHeuristics.FIRSTSTRONG_LTR)
+            .build()
+
+        renderedPageLayout = pageLayout
+        renderedPageKey = currentPage
+        return pageLayout
     }
 
     private fun pageForOffset(charOffset: Int): Int {
