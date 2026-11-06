@@ -14,7 +14,7 @@
 | 目录骨架 | ✅ 完成 | app/kernel/formats/plugin-host/sdk 等 |
 | 文档体系 | ✅ 第一批完成 | 章程、基线、模块地图、路线图、工作流、环境、质量 |
 | 环境审计 | ✅ 完成（只读） | SDK/NDK/JDK21/Gradle/Git 均可用 |
-| 本地 git | ✅ 完成 | `main`，标签 `m0-build`；M0 真机通过 |
+| 本地 git | ✅ 完成 | `main` + `feat/m1-vertical-slice`；标签 `m0-build`、`m0-complete`、`m1-build` |
 | Gradle 工程 | ✅ 完成 | AGP 8.13.2 / Kotlin 2.4.20 / Compose BOM 2025.10.01 |
 | debug APK | ✅ 构建/真机通过 | 无 INTERNET；16 KB 对齐；v2 签名 |
 | GitHub remote | ⚠️ 已添加 | `https://github.com/Lanzune/InkReader.git`；推送待本机认证 |
