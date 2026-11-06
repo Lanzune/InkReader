@@ -14,7 +14,7 @@ import com.inkreader.kernel.api.UnsupportedBookFormatException
 class BookOpener(
     private val providers: List<FormatProvider>,
 ) {
-    fun open(source: BookSource): BookDocument {
+    fun open(source: BookSource, encoding: String? = null): BookDocument {
         val candidates = providers.mapNotNull { provider ->
             provider.probe(source)?.let { match -> provider to match.confidence }
         }
@@ -23,7 +23,11 @@ class BookOpener(
 
         return selected.open(
             source,
-            OpenContext(displayName = source.displayName, mimeType = source.mimeType),
+            OpenContext(
+                displayName = source.displayName,
+                mimeType = source.mimeType,
+                encoding = encoding,
+            ),
         )
     }
 }

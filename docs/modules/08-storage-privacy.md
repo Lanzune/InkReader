@@ -55,6 +55,12 @@ SQLite（`SQLiteOpenHelper`）：
 - 卸载重装
 - 检查 manifest 无 INTERNET/危险权限
 
+## M2a 状态
+
+- `ReadingStateStore` 使用 `SharedPreferences` 保存最后 URI、标题、字符偏移和编码；不复制书籍
+- 多本最近阅读/书名列表后续替换为 SQLite；当前只保留最后一本
+- 手动编码覆盖在 M2b 接入同一状态存储
+
 ## 退出标准
 
 - 不复制书籍也能正常阅读

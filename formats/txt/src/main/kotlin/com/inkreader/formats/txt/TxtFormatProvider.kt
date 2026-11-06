@@ -8,11 +8,12 @@ import com.inkreader.kernel.api.FormatProvider
 import com.inkreader.kernel.api.LayoutKind
 import com.inkreader.kernel.api.OpenContext
 import com.inkreader.kernel.api.BookSource
+import com.inkreader.kernel.api.TocEntry
 
 /**
- * M1 的最小 TXT 格式插件：UTF-8、BOM 处理、单章节。
+ * TXT 格式：编码探测、单章节正文和章节标题索引。
  *
- * M2 会补编码探测、章节索引、按偏移读取和大文件支持。
+ * M2 先提供正文章节定位；大文件按偏移读取、分页索引留到后续。
  */
 class TxtFormatProvider : FormatProvider {
     override val id: String = "txt"
@@ -26,7 +27,7 @@ class TxtFormatProvider : FormatProvider {
 
     override fun open(source: BookSource, context: OpenContext): BookDocument {
         val bytes = source.readAll()
-        val decoded = TxtDecoder.decode(bytes)
+        val decoded = TxtDecoder.decode(bytes, context.encoding)
         if (decoded.text.isBlank()) {
             throw IllegalArgumentException("TXT 文件为空或无法解码")
         }
@@ -36,6 +37,24 @@ class TxtFormatProvider : FormatProvider {
             formatId = id,
             layout = LayoutKind.REFLOWABLE,
             chapters = listOf(Chapter(id = "txt-0", title = title, text = decoded.text)),
+            toc = buildToc(decoded.text),
+        )
+    }
+
+    private fun buildToc(text: String): List<TocEntry> {
+        val matches = chapterPattern.findAll(text).take(500).toList()
+        if (matches.isEmpty()) return emptyList()
+        return matches.map { match ->
+            TocEntry(
+                title = match.value.trim().take(80).ifBlank { "未命名章节" },
+                charOffset = match.range.first,
+            )
+        }
+    }
+
+    private companion object {
+        val chapterPattern = Regex(
+            pattern = "(?m)^(?:第[0-9一二三四五六七八九十百千万零〇]+[章节回卷部篇].*|序章.*|楔子.*|尾声.*|后记.*|Chapter\\s+\\d+.*)$",
         )
     }
 }

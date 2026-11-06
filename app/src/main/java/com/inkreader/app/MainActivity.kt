@@ -1,9 +1,10 @@
 package com.inkreader.app
 
-import android.content.Intent
 import android.app.Activity
 import android.content.Context
 import android.content.ContextWrapper
+import android.content.Intent
+import android.net.Uri
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -16,11 +17,15 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -53,6 +58,8 @@ import com.inkreader.kernel.api.ReaderTheme
 import com.inkreader.kernel.core.BookOpener
 import com.inkreader.kernel.core.ContentBookSource
 import com.inkreader.kernel.core.KernelEngine
+import com.inkreader.kernel.core.ReadingStateStore
+import com.inkreader.kernel.core.SavedReading
 import com.inkreader.plugin.quickjs.PluginSnapshot
 import com.inkreader.plugin.quickjs.QuickJsPluginHost
 import com.inkreader.reader.engine.ReaderSurfaceView
@@ -74,13 +81,20 @@ class MainActivity : ComponentActivity() {
 private sealed interface Screen {
     data object Home : Screen
     data object Loading : Screen
-    data class Reading(val book: BookDocument) : Screen
+    data class Reading(
+        val book: BookDocument,
+        val uri: Uri,
+        val encoding: String?,
+        val initialOffset: Int,
+    ) : Screen
 }
 
 @Composable
 private fun InkReaderApp() {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    val readingState = remember(context) { ReadingStateStore(context) }
+    var saved: SavedReading? by remember { mutableStateOf(readingState.load()) }
     var screen: Screen by remember { mutableStateOf(Screen.Home) }
     var error: String? by remember { mutableStateOf(null) }
     var pluginSnapshot: PluginSnapshot? by remember { mutableStateOf(null) }
@@ -100,10 +114,7 @@ private fun InkReaderApp() {
             .onFailure { pluginError = it.message ?: "示例插件加载失败" }
     }
 
-    val openDocument = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.OpenDocument(),
-    ) { uri ->
-        if (uri == null) return@rememberLauncherForActivityResult
+    fun openUri(uri: Uri, encoding: String? = null, initialOffset: Int = 0) {
         try {
             context.contentResolver.takePersistableUriPermission(
                 uri,
@@ -120,14 +131,22 @@ private fun InkReaderApp() {
                 withContext(Dispatchers.IO) {
                     val source = ContentBookSource(context, uri)
                     try {
-                        BookOpener(listOf(TxtFormatProvider())).open(source)
+                        BookOpener(listOf(TxtFormatProvider())).open(source, encoding)
                     } finally {
                         source.close()
                     }
                 }
             }
             result.onSuccess { book ->
-                screen = Screen.Reading(book)
+                val record = SavedReading(
+                    uri = uri.toString(),
+                    title = book.metadata.title,
+                    charOffset = initialOffset,
+                    encoding = encoding,
+                )
+                readingState.save(record.uri, record.title, record.charOffset, record.encoding)
+                saved = record
+                screen = Screen.Reading(book, uri, encoding, initialOffset)
             }.onFailure { failure ->
                 error = failure.message ?: "打开文件失败"
                 screen = Screen.Home
@@ -135,12 +154,24 @@ private fun InkReaderApp() {
         }
     }
 
+    val openDocument = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument(),
+    ) { uri ->
+        if (uri != null) openUri(uri)
+    }
+
     when (val current = screen) {
         Screen.Home -> HomeScreen(
+            saved = saved,
             error = error,
             pluginSnapshot = pluginSnapshot,
             pluginError = pluginError,
             onOpen = { openDocument.launch(arrayOf("*/*")) },
+            onContinue = {
+                saved?.let { record ->
+                    openUri(Uri.parse(record.uri), record.encoding, record.charOffset)
+                }
+            },
         )
 
         Screen.Loading -> LoadingScreen()
@@ -148,6 +179,17 @@ private fun InkReaderApp() {
         is Screen.Reading -> ReaderScreen(
             book = current.book,
             pluginTheme = pluginSnapshot?.theme,
+            initialCharOffset = current.initialOffset,
+            onProgress = { offset ->
+                val record = SavedReading(
+                    uri = current.uri.toString(),
+                    title = current.book.metadata.title,
+                    charOffset = offset,
+                    encoding = current.encoding,
+                )
+                readingState.save(record.uri, record.title, record.charOffset, record.encoding)
+                saved = record
+            },
             onBack = { screen = Screen.Home },
         )
     }
@@ -155,10 +197,12 @@ private fun InkReaderApp() {
 
 @Composable
 private fun HomeScreen(
+    saved: SavedReading?,
     error: String?,
     pluginSnapshot: PluginSnapshot?,
     pluginError: String?,
     onOpen: () -> Unit,
+    onContinue: () -> Unit,
 ) {
     Surface(modifier = Modifier.fillMaxSize()) {
         Column(
@@ -169,13 +213,18 @@ private fun HomeScreen(
             horizontalAlignment = Alignment.Start,
         ) {
             Text(text = "InkReader", style = MaterialTheme.typography.headlineLarge)
-            Text(text = "M1 · 本地 TXT 阅读 + QuickJS 示例插件", style = MaterialTheme.typography.titleMedium)
+            Text(text = "M2 · TXT 阅读与进度", style = MaterialTheme.typography.titleMedium)
             Text(
                 text = KernelEngine().versionLabel(),
                 style = MaterialTheme.typography.bodySmall,
             )
-            Button(onClick = onOpen) {
-                Text("打开本地 TXT")
+            if (saved != null) {
+                Button(onClick = onContinue) {
+                    Text("继续阅读：${saved.title}")
+                }
+            }
+            OutlinedButton(onClick = onOpen) {
+                Text(if (saved == null) "打开本地 TXT" else "打开另一本 TXT")
             }
             when {
                 pluginSnapshot != null -> {
@@ -214,7 +263,7 @@ private fun HomeScreen(
                 )
             }
             Text(
-                text = "当前只支持 UTF-8 TXT；编码探测、EPUB、PDF 和完整插件包在后续阶段。",
+                text = "已支持 UTF-8/GB18030/Big5/UTF-16 自动识别；最近阅读和字符位置会保存。",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -244,12 +293,16 @@ private fun LoadingScreen() {
 private fun ReaderScreen(
     book: BookDocument,
     pluginTheme: ReaderTheme?,
+    initialCharOffset: Int,
+    onProgress: (Int) -> Unit,
     onBack: () -> Unit,
 ) {
     val chapter = book.chapters.first()
     var pageInfo by remember { mutableStateOf(PageInfo(0, 1)) }
     var theme by remember { mutableStateOf(pluginTheme ?: BuiltInThemes.Light) }
     var controlsVisible by remember { mutableStateOf(true) }
+    var tocVisible by remember { mutableStateOf(false) }
+    var readerView by remember { mutableStateOf<ReaderSurfaceView?>(null) }
 
     val activity = LocalContext.current.findActivity()
     val view = LocalView.current
@@ -283,12 +336,16 @@ private fun ReaderScreen(
         AndroidView(
             factory = { context ->
                 ReaderSurfaceView(context).apply {
-                    setContent(chapter.text, theme)
-                    onPageChanged = { pageInfo = it }
+                    onPageChanged = { info ->
+                        pageInfo = info
+                        onProgress(info.charOffset)
+                    }
                     onCenterTap = { controlsVisible = !controlsVisible }
+                    setContent(chapter.text, theme, initialCharOffset)
+                    readerView = this
                 }
             },
-            update = { view -> view.setTheme(theme) },
+            update = { surface -> surface.setTheme(theme) },
             modifier = Modifier.fillMaxSize(),
         )
 
@@ -301,7 +358,12 @@ private fun ReaderScreen(
                     .padding(horizontal = 8.dp, vertical = 4.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                TextButton(onClick = onBack) {
+                TextButton(
+                    onClick = {
+                        onProgress(readerView?.currentCharOffset() ?: pageInfo.charOffset)
+                        onBack()
+                    },
+                ) {
                     Text("返回", color = Color(theme.foreground))
                 }
                 Text(
@@ -317,6 +379,34 @@ private fun ReaderScreen(
                     color = Color(theme.foreground),
                     style = MaterialTheme.typography.labelMedium,
                 )
+                if (book.toc.isNotEmpty()) {
+                    Box {
+                        TextButton(onClick = { tocVisible = true }) {
+                            Text("目录", color = Color(theme.foreground))
+                        }
+                        DropdownMenu(
+                            expanded = tocVisible,
+                            onDismissRequest = { tocVisible = false },
+                            modifier = Modifier.heightIn(max = 360.dp),
+                        ) {
+                            book.toc.forEach { entry ->
+                                DropdownMenuItem(
+                                    text = {
+                                        Text(
+                                            text = entry.title,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis,
+                                        )
+                                    },
+                                    onClick = {
+                                        readerView?.goToCharOffset(entry.charOffset)
+                                        tocVisible = false
+                                    },
+                                )
+                            }
+                        }
+                    }
+                }
                 TextButton(
                     onClick = {
                         theme = when {
