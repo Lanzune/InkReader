@@ -4,6 +4,25 @@
 **时间：** 2–3 周。  
 **前置：** M0 构建成功、git 提交完成。
 
+## 实现拆分与当前结果
+
+| 子阶段 | 内容 | 状态 |
+|---|---|---|
+| M1a | 内核 API、TXT、阅读视图、SAF、基础主题 | ✅ 真机通过 |
+| M1b | QuickJS 宿主、示例主题/命令脚本 | ✅ 真机确认插件/主题正常 |
+| M1c | 编码探测 + 控栏卡顿修复 | ✅ 真机通过 |
+| M1d | 阅读时隐藏导航栏（沉浸式） | 🚧 开发中 |
+
+产物：
+
+- `artifacts/m1a/inkreader-0.1.0-m1a-debug.apk`
+- `artifacts/m1b/inkreader-0.1.0-m1b-debug.apk`
+- `artifacts/m1c/inkreader-0.1.1-m1c-debug.apk`
+
+M1c 真机确认通过（Android 16，一加 Ace 5）。新发现三键导航栏挤占底部，M1d 采用 Android 沉浸式 transient bars：阅读时隐藏导航栏，底部上滑临时呼出，离开阅读器恢复。
+
+M1b 使用 `io.github.dokar3:quickjs-kt:1.0.15`（1.0.16 要求 compileSdk 37）。示例脚本 `app/src/main/assets/plugins/sample-theme.js` 同时提供主题和命令结果；`.inkp` 安装、权限/限额在 M6。
+
 ## 范围
 
 必须做：

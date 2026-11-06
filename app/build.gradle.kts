@@ -14,8 +14,8 @@ android {
         applicationId = "com.inkreader.app"
         minSdk = 26
         targetSdk = 36
-        versionCode = 1
-        versionName = "0.0.1"
+        versionCode = 3
+        versionName = "0.1.1"
     }
 
     buildFeatures {
@@ -56,12 +56,17 @@ kotlin {
 dependencies {
     implementation(project(":kernel:api"))
     implementation(project(":kernel:core"))
+    implementation(project(":reader-engine"))
+    implementation(project(":formats:txt"))
+    implementation(project(":plugin-host-quickjs"))
 
     implementation(platform("androidx.compose:compose-bom:2025.10.01"))
     implementation("androidx.activity:activity-compose:1.11.0")
+    implementation("androidx.compose.foundation:foundation")
     implementation("androidx.compose.ui:ui")
     implementation("androidx.compose.material3:material3")
     implementation("androidx.compose.ui:ui-tooling-preview")
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2")
     debugImplementation("androidx.compose.ui:ui-tooling")
 
     testImplementation("junit:junit:4.13.2")
