@@ -18,3 +18,5 @@ rootProject.name = "InkReader"
 include(":app")
 include(":kernel:api")
 include(":kernel:core")
+include(":reader-engine")
+include(":formats:txt")
