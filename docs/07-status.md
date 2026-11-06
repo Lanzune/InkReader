@@ -45,14 +45,13 @@
 
 | Ref | Commit |
 |---|---|
-| `origin/main` | `cdb697f`（含 M1d 合并） |
-| `origin/feat/m2-txt-reader` | `cc51859` |
-| `origin/feat/m1-vertical-slice` | `8716def` |
-| `m1-vertical-slice` | `56bca31` |
-| `m1d-immersive` | `cdb697f` |
-| `m2a-build` | `cc51859` |
+| `origin/main` | `43422e5`（含 M2a 合并） |
+| `origin/feat/m2b-settings` | `237cd7a` |
+| `origin/feat/m2a` | `17dd42a` |
+| `m2a-chapters` | `43422e5` |
+| `m2b-build` | `237cd7a` |
 
-M2a 真机通过后，再把 `feat/m2-txt-reader` 合并到 `main` 并推送。
+M2b 真机通过后，把 `feat/m2b-settings` 合并到 `main`，打 `m2-txt-reader` 标签并推送。
 
 ## 最近一次环境结论
 
