@@ -15,6 +15,7 @@ import com.inkreader.kernel.api.BuiltInThemes
 import com.inkreader.kernel.api.PageInfo
 import com.inkreader.kernel.api.ReaderTheme
 import kotlin.math.abs
+import kotlin.math.ceil
 
 /**
  * M1 的最小阅读视图：用 StaticLayout 做行级分页，Canvas 绘制一页。
@@ -44,6 +45,11 @@ class ReaderSurfaceView(context: Context) : View(context) {
     private val contentTop get() = paddingTop
     private val contentWidth get() = (width - paddingLeft - paddingRight).coerceAtLeast(1)
     private val contentHeight get() = (height - paddingTop - paddingBottom - dp(8)).coerceAtLeast(1)
+
+    /** 每一页顶部/底部为字形 ascent/descent 预留的安全量，而不是只给整段布局首尾留。 */
+    private val pageTopInset get() = ceil(-textPaint.fontMetrics.top).toInt().coerceAtLeast(0)
+    private val pageBottomInset get() = ceil(textPaint.fontMetrics.bottom).toInt().coerceAtLeast(0)
+    private val paginationHeight get() = (contentHeight - pageTopInset - pageBottomInset).coerceAtLeast(1)
 
     private val gestureDetector = GestureDetector(
         context,
@@ -174,7 +180,7 @@ class ReaderSurfaceView(context: Context) : View(context) {
         )
         canvas.translate(
             contentLeft.toFloat(),
-            (contentTop - layout.getLineTop(startLine)).toFloat(),
+            (contentTop + pageTopInset - layout.getLineTop(startLine)).toFloat(),
         )
         layout.draw(canvas)
         canvas.restore()
@@ -206,7 +212,7 @@ class ReaderSurfaceView(context: Context) : View(context) {
             .obtain(content, 0, content.length, textPaint, contentWidth)
             .setAlignment(Layout.Alignment.ALIGN_NORMAL)
             .setLineSpacing(0f, style.lineSpacingMultiplier)
-            .setIncludePad(true)
+            .setIncludePad(false)
             .setBreakStrategy(Layout.BREAK_STRATEGY_HIGH_QUALITY)
             .setHyphenationFrequency(Layout.HYPHENATION_FREQUENCY_NORMAL)
             .setTextDirection(TextDirectionHeuristics.FIRSTSTRONG_LTR)
@@ -218,7 +224,7 @@ class ReaderSurfaceView(context: Context) : View(context) {
             val top = layout.getLineTop(start)
             var end = start
             while (end < layout.lineCount &&
-                layout.getLineBottom(end) - top <= contentHeight
+                layout.getLineBottom(end) - top <= paginationHeight
             ) {
                 end += 1
             }
