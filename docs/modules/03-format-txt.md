@@ -9,7 +9,8 @@
 - 严格 UTF-8 解码，去除 BOM
 - 单章节 `BookDocument`
 - JVM 单元测试：BOM、扩展名探测
-- 编码探测、章节索引、大文件、Locator 留到 M2
+- M1c 增加 BOM/UTF-16、严格 UTF-8、GB18030/Big5 评分探测
+- 手动编码切换、章节索引、大文件、Locator 留到 M2
 
 ## 目的
 

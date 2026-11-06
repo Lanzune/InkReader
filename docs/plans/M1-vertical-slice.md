@@ -9,13 +9,15 @@
 | 子阶段 | 内容 | 状态 |
 |---|---|---|
 | M1a | 内核 API、TXT、阅读视图、SAF、基础主题 | ✅ 构建/单测通过；等待真机 |
-| M1b | QuickJS 宿主、示例主题/命令脚本 | ✅ 构建通过；等待真机 |
-| M1c | 真机验收、修复、合并 | ⏳ 待开始 |
+| M1b | QuickJS 宿主、示例主题/命令脚本 | ✅ 构建通过；真机确认插件/主题正常 |
+| M1c | 编码探测 + 控栏卡顿修复 | ✅ 构建/单测通过；等待真机复验 |
+| M1d | 真机复验、修复、合并 | ⏳ 待开始 |
 
 产物：
 
 - `artifacts/m1a/inkreader-0.1.0-m1a-debug.apk`
 - `artifacts/m1b/inkreader-0.1.0-m1b-debug.apk`
+- `artifacts/m1c/inkreader-0.1.1-m1c-debug.apk`
 
 M1b 使用 `io.github.dokar3:quickjs-kt:1.0.15`（1.0.16 要求 compileSdk 37）。示例脚本 `app/src/main/assets/plugins/sample-theme.js` 同时提供主题和命令结果；`.inkp` 安装、权限/限额在 M6。
 

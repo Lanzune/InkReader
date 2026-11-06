@@ -8,7 +8,6 @@ import com.inkreader.kernel.api.FormatProvider
 import com.inkreader.kernel.api.LayoutKind
 import com.inkreader.kernel.api.OpenContext
 import com.inkreader.kernel.api.BookSource
-import java.nio.charset.StandardCharsets
 
 /**
  * M1 的最小 TXT 格式插件：UTF-8、BOM 处理、单章节。
@@ -27,25 +26,16 @@ class TxtFormatProvider : FormatProvider {
 
     override fun open(source: BookSource, context: OpenContext): BookDocument {
         val bytes = source.readAll()
-        val text = decodeUtf8(bytes)
-        if (text.isBlank()) {
-            throw IllegalArgumentException("TXT 文件为空或无法解码为 UTF-8")
+        val decoded = TxtDecoder.decode(bytes)
+        if (decoded.text.isBlank()) {
+            throw IllegalArgumentException("TXT 文件为空或无法解码")
         }
         val title = context.displayName.substringBeforeLast('.').ifBlank { "未命名书籍" }
         return BookDocument(
             metadata = BookMetadata(title = title),
             formatId = id,
             layout = LayoutKind.REFLOWABLE,
-            chapters = listOf(Chapter(id = "txt-0", title = title, text = text)),
+            chapters = listOf(Chapter(id = "txt-0", title = title, text = decoded.text)),
         )
-    }
-
-    private fun decodeUtf8(bytes: ByteArray): String {
-        val start = if (bytes.size >= 3 &&
-            bytes[0] == 0xEF.toByte() &&
-            bytes[1] == 0xBB.toByte() &&
-            bytes[2] == 0xBF.toByte()
-        ) 3 else 0
-        return String(bytes, start, bytes.size - start, StandardCharsets.UTF_8)
     }
 }

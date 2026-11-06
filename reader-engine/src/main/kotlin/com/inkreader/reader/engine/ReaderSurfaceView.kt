@@ -74,7 +74,8 @@ class ReaderSurfaceView(context: Context) : View(context) {
     )
 
     init {
-        setPadding(dp(24), dp(32), dp(24), dp(40))
+        // 顶部预留控制栏/状态栏空间，避免显示控制栏时改变阅读视图尺寸而重新分页。
+        setPadding(dp(24), dp(88), dp(24), dp(40))
         setBackgroundColor(theme.background)
         isClickable = true
         isFocusable = true
