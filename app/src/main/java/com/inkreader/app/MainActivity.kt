@@ -248,58 +248,62 @@ private fun ReaderScreen(
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
-        AndroidView(
-            factory = { context ->
-                ReaderSurfaceView(context).apply {
-                    setContent(chapter.text, theme)
-                    onPageChanged = { pageInfo = it }
-                    onCenterTap = { controlsVisible = !controlsVisible }
-                }
-            },
-            update = { view -> view.setTheme(theme) },
-            modifier = Modifier.fillMaxSize(),
-        )
-
-        if (controlsVisible) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .background(Color(theme.background).copy(alpha = 0.93f))
-                    .statusBarsPadding()
-                    .padding(horizontal = 8.dp, vertical = 4.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                TextButton(onClick = onBack) {
-                    Text("返回", color = Color(theme.foreground))
-                }
-                Text(
-                    text = book.metadata.title,
-                    modifier = Modifier.weight(1f),
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    color = Color(theme.foreground),
-                    style = MaterialTheme.typography.titleSmall,
-                )
-                Text(
-                    text = "${pageInfo.page + 1}/${pageInfo.pageCount}",
-                    color = Color(theme.foreground),
-                    style = MaterialTheme.typography.labelMedium,
-                )
-                TextButton(
-                    onClick = {
-                        theme = when {
-                            pluginTheme != null && theme.id == pluginTheme.id -> BuiltInThemes.Dark
-                            theme.dark -> BuiltInThemes.Light
-                            else -> BuiltInThemes.Dark
-                        }
-                    },
+        Column(modifier = Modifier.fillMaxSize()) {
+            if (controlsVisible) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(Color(theme.background).copy(alpha = 0.93f))
+                        .statusBarsPadding()
+                        .padding(horizontal = 8.dp, vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
                 ) {
+                    TextButton(onClick = onBack) {
+                        Text("返回", color = Color(theme.foreground))
+                    }
                     Text(
-                        text = if (theme.dark) "日间" else "夜间",
+                        text = book.metadata.title,
+                        modifier = Modifier.weight(1f),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
                         color = Color(theme.foreground),
+                        style = MaterialTheme.typography.titleSmall,
                     )
+                    Text(
+                        text = "${pageInfo.page + 1}/${pageInfo.pageCount}",
+                        color = Color(theme.foreground),
+                        style = MaterialTheme.typography.labelMedium,
+                    )
+                    TextButton(
+                        onClick = {
+                            theme = when {
+                                pluginTheme != null && theme.id == pluginTheme.id -> BuiltInThemes.Dark
+                                theme.dark -> BuiltInThemes.Light
+                                else -> BuiltInThemes.Dark
+                            }
+                        },
+                    ) {
+                        Text(
+                            text = if (theme.dark) "日间" else "夜间",
+                            color = Color(theme.foreground),
+                        )
+                    }
                 }
             }
+
+            AndroidView(
+                factory = { context ->
+                    ReaderSurfaceView(context).apply {
+                        setContent(chapter.text, theme)
+                        onPageChanged = { pageInfo = it }
+                        onCenterTap = { controlsVisible = !controlsVisible }
+                    }
+                },
+                update = { view -> view.setTheme(theme) },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f),
+            )
         }
     }
 }
