@@ -45,13 +45,14 @@
 
 | Ref | Commit |
 |---|---|
-| `origin/main` | `56bca31`（含 M1 合并） |
+| `origin/main` | `cdb697f`（含 M1d 合并） |
+| `origin/feat/m2-txt-reader` | `cc51859` |
 | `origin/feat/m1-vertical-slice` | `8716def` |
-| `origin/fix/reader-immersive` | `4e167b8` |
 | `m1-vertical-slice` | `56bca31` |
-| `m1d-build` | `8f545d2` |
+| `m1d-immersive` | `cdb697f` |
+| `m2a-build` | `cc51859` |
 
-M1d 真机通过后，再把 `fix/reader-immersive` 合并到 `main` 并推送。
+M2a 真机通过后，再把 `feat/m2-txt-reader` 合并到 `main` 并推送。
 
 ## 最近一次环境结论
 
