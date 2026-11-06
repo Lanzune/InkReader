@@ -25,7 +25,7 @@
 ## 下一步（按顺序）
 
 1. 安装 `artifacts/m1d/inkreader-0.1.2-m1d-debug.apk`，验证导航栏隐藏/上滑呼出/退出恢复。
-2. 通过后合并 `fix/reader-immersive`，推送 `main`、M1 和 M1d 分支/标签。
+2. 通过后合并 `fix/reader-immersive` 到 `main`，打 `m1d-immersive` 标签。
 3. 进入 M2：章节索引、进度持久化、设置/亮度、手动编码切换。
 
 ## 阻塞与待定
@@ -33,10 +33,23 @@
 | 项 | 是否阻塞 | 说明 |
 |---|---|---|
 | 导航栏交互真机验证 | 是（M1d） | 需项目所有者安装 APK 后确认 |
-| GitHub 推送 | 否 | 项目所有者已解决上传；本机凭据状态待复核 |
 | 正式名称/包名 | 否 | 暂用 `com.inkreader.app` |
 | 签名密钥 | 否 | M7 前准备 |
 | 图标/视觉设计 | 否 | M5 前完善 |
+
+## Git 推送状态
+
+已用官方 GitHub CLI 完成设备授权，token 存在系统 keyring，项目内没有 token。
+
+| Ref | Commit |
+|---|---|
+| `origin/main` | `56bca31`（含 M1 合并） |
+| `origin/feat/m1-vertical-slice` | `8716def` |
+| `origin/fix/reader-immersive` | `4e167b8` |
+| `m1-vertical-slice` | `56bca31` |
+| `m1d-build` | `8f545d2` |
+
+M1d 真机通过后，再把 `fix/reader-immersive` 合并到 `main` 并推送。
 
 ## 最近一次环境结论
 
