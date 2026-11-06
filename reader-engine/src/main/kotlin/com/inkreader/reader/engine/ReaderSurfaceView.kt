@@ -43,7 +43,7 @@ class ReaderSurfaceView(context: Context) : View(context) {
     private val contentLeft get() = paddingLeft
     private val contentTop get() = paddingTop
     private val contentWidth get() = (width - paddingLeft - paddingRight).coerceAtLeast(1)
-    private val contentHeight get() = (height - paddingTop - paddingBottom).coerceAtLeast(1)
+    private val contentHeight get() = (height - paddingTop - paddingBottom - dp(8)).coerceAtLeast(1)
 
     private val gestureDetector = GestureDetector(
         context,
@@ -76,8 +76,8 @@ class ReaderSurfaceView(context: Context) : View(context) {
     )
 
     init {
-        // 顶部预留控制栏/状态栏空间，避免显示控制栏时改变阅读视图尺寸而重新分页。
-        setPadding(dp(style.horizontalPaddingDp), dp(88), dp(style.horizontalPaddingDp), dp(40))
+        // 顶部预留控制栏/状态栏空间，底部额外留安全区，避免首尾行被裁切或贴近手势区。
+        setPadding(dp(style.horizontalPaddingDp), dp(96), dp(style.horizontalPaddingDp), dp(52))
         textPaint.textSize = sp(style.fontSizeSp)
         setBackgroundColor(theme.background)
         isClickable = true
@@ -89,7 +89,7 @@ class ReaderSurfaceView(context: Context) : View(context) {
         val restoreOffset = currentCharOffset()
         style = newStyle
         textPaint.textSize = sp(style.fontSizeSp)
-        setPadding(dp(style.horizontalPaddingDp), dp(88), dp(style.horizontalPaddingDp), dp(40))
+        setPadding(dp(style.horizontalPaddingDp), dp(96), dp(style.horizontalPaddingDp), dp(52))
         if (ready) {
             rebuildLayout(restoreOffset)
         }
@@ -206,7 +206,7 @@ class ReaderSurfaceView(context: Context) : View(context) {
             .obtain(content, 0, content.length, textPaint, contentWidth)
             .setAlignment(Layout.Alignment.ALIGN_NORMAL)
             .setLineSpacing(0f, style.lineSpacingMultiplier)
-            .setIncludePad(false)
+            .setIncludePad(true)
             .setBreakStrategy(Layout.BREAK_STRATEGY_HIGH_QUALITY)
             .setHyphenationFrequency(Layout.HYPHENATION_FREQUENCY_NORMAL)
             .setTextDirection(TextDirectionHeuristics.FIRSTSTRONG_LTR)

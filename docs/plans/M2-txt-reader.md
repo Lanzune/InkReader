@@ -15,6 +15,7 @@
 M2a 产物：`artifacts/m2a/inkreader-0.2.0-m2a-debug.apk`
 M2b 产物：`artifacts/m2b/inkreader-0.2.1-m2b-debug.apk`
 M2b2 修复：`artifacts/m2b2/inkreader-0.2.2-m2b2-debug.apk`
+M2b3 修复：`artifacts/m2b3/inkreader-0.2.3-m2b3-debug.apk`
 
 ## 范围
 
