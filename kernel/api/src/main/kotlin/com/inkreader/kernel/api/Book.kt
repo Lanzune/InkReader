@@ -26,6 +26,11 @@ data class Chapter(
     val text: String,
 )
 
+data class TocEntry(
+    val title: String,
+    val charOffset: Int,
+)
+
 enum class LayoutKind {
     REFLOWABLE,
     FIXED_PAGE,
@@ -36,6 +41,7 @@ data class BookDocument(
     val formatId: String,
     val layout: LayoutKind,
     val chapters: List<Chapter>,
+    val toc: List<TocEntry> = emptyList(),
 )
 
 data class FormatMatch(
@@ -46,6 +52,7 @@ data class FormatMatch(
 data class OpenContext(
     val displayName: String,
     val mimeType: String? = null,
+    val encoding: String? = null,
 )
 
 interface FormatProvider {

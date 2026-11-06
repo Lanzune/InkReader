@@ -33,6 +33,7 @@ class ReaderSurfaceView(context: Context) : View(context) {
     private var textLayout: StaticLayout? = null
     private var pageStarts: IntArray = IntArray(0)
     private var currentPage: Int = 0
+    private var pendingCharOffset: Int? = null
     private var ready = false
 
     var onPageChanged: ((PageInfo) -> Unit)? = null
@@ -81,14 +82,31 @@ class ReaderSurfaceView(context: Context) : View(context) {
         isFocusable = true
     }
 
-    fun setContent(text: String, readerTheme: ReaderTheme = theme) {
+    fun setContent(text: String, readerTheme: ReaderTheme = theme, initialCharOffset: Int = 0) {
         content = text
         theme = readerTheme
         textPaint.color = theme.foreground
         setBackgroundColor(theme.background)
         currentPage = 0
         ready = true
-        rebuildLayout()
+        pendingCharOffset = initialCharOffset.coerceAtLeast(0)
+        if (width > 0 && height > 0) {
+            rebuildLayout(pendingCharOffset)
+        }
+    }
+
+    fun goToCharOffset(charOffset: Int) {
+        if (textLayout == null || pageStarts.isEmpty()) return
+        currentPage = pageForOffset(charOffset)
+        invalidate()
+        notifyPage()
+    }
+
+    fun currentCharOffset(): Int {
+        val layout = textLayout ?: return 0
+        if (pageStarts.isEmpty()) return 0
+        val line = pageStarts[currentPage.coerceIn(0, pageStarts.size - 1)]
+        return layout.getLineStart(line)
     }
 
     fun setTheme(readerTheme: ReaderTheme) {
@@ -114,11 +132,18 @@ class ReaderSurfaceView(context: Context) : View(context) {
         return true
     }
 
-    fun pageInfo(): PageInfo = PageInfo(currentPage, pageStarts.size.coerceAtLeast(1))
+    fun pageInfo(): PageInfo = PageInfo(
+        page = currentPage,
+        pageCount = pageStarts.size.coerceAtLeast(1),
+        charOffset = currentCharOffset(),
+    )
 
     override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
         super.onSizeChanged(w, h, oldw, oldh)
-        if (ready) rebuildLayout()
+        if (ready) {
+            val restoreOffset = pendingCharOffset
+            rebuildLayout(restoreOffset)
+        }
     }
 
     override fun onDraw(canvas: Canvas) {
@@ -153,7 +178,9 @@ class ReaderSurfaceView(context: Context) : View(context) {
         return true
     }
 
-    private fun rebuildLayout() {
+    private fun rebuildLayout(initialCharOffset: Int? = null) {
+        val restoreOffset = initialCharOffset ?: pendingCharOffset ?: currentCharOffset()
+        pendingCharOffset = null
         if (content.isBlank() || contentWidth <= 1 || contentHeight <= 1) {
             textLayout = null
             pageStarts = IntArray(0)
@@ -189,9 +216,21 @@ class ReaderSurfaceView(context: Context) : View(context) {
 
         textLayout = layout
         pageStarts = starts.toIntArray()
-        currentPage = currentPage.coerceIn(0, (pageStarts.size - 1).coerceAtLeast(0))
+        currentPage = pageForOffset(restoreOffset)
         notifyPage()
         invalidate()
+    }
+
+    private fun pageForOffset(charOffset: Int): Int {
+        val layout = textLayout ?: return 0
+        if (pageStarts.isEmpty()) return 0
+        val safeOffset = charOffset.coerceIn(0, content.length.coerceAtLeast(0))
+        val line = layout.getLineForOffset(safeOffset)
+        var page = 0
+        for (index in pageStarts.indices) {
+            if (pageStarts[index] <= line) page = index else break
+        }
+        return page
     }
 
     private fun notifyPage() {

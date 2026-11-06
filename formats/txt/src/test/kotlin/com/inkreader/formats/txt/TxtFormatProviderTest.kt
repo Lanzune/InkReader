@@ -62,6 +62,18 @@ class TxtFormatProviderTest {
     }
 
     @Test
+    fun buildsChapterOffsets() {
+        val text = "第一章 开始\n正文一。\n\n第二章 继续\n正文二。"
+        val source = FakeSource("book.txt", "text/plain", text.toByteArray(Charsets.UTF_8))
+        val document = provider.open(source, com.inkreader.kernel.api.OpenContext(source.displayName, source.mimeType))
+
+        assertEquals(2, document.toc.size)
+        assertEquals("第一章 开始", document.toc[0].title)
+        assertEquals(text.indexOf("第一章 开始"), document.toc[0].charOffset)
+        assertEquals(text.indexOf("第二章 继续"), document.toc[1].charOffset)
+    }
+
+    @Test
     fun probesTxtByExtension() {
         val source = FakeSource("novel.txt", null, ByteArray(0))
         assertTrue(provider.probe(source) != null)

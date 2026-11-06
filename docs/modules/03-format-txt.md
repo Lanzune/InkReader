@@ -10,7 +10,8 @@
 - 单章节 `BookDocument`
 - JVM 单元测试：BOM、扩展名探测
 - M1c 增加 BOM/UTF-16、严格 UTF-8、GB18030/Big5 评分探测
-- 手动编码切换、章节索引、大文件、Locator 留到 M2
+- M2a 增加章节标题索引（`TocEntry` 字符偏移）
+- 手动编码切换、大文件按偏移读取、完整 Locator 留到 M2b/后续
 
 ## 目的
 

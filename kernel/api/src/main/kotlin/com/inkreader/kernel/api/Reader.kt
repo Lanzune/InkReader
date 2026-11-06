@@ -37,4 +37,5 @@ data class Locator(
 data class PageInfo(
     val page: Int,
     val pageCount: Int,
+    val charOffset: Int = 0,
 )
