@@ -29,6 +29,7 @@ class ReaderSurfaceView(context: Context) : View(context) {
     }
 
     private var theme: ReaderTheme = BuiltInThemes.Light
+    private var style: ReaderStyle = ReaderStyle()
     private var content: String = ""
     private var textLayout: StaticLayout? = null
     private var pageStarts: IntArray = IntArray(0)
@@ -76,10 +77,22 @@ class ReaderSurfaceView(context: Context) : View(context) {
 
     init {
         // 顶部预留控制栏/状态栏空间，避免显示控制栏时改变阅读视图尺寸而重新分页。
-        setPadding(dp(24), dp(88), dp(24), dp(40))
+        setPadding(dp(style.horizontalPaddingDp), dp(88), dp(style.horizontalPaddingDp), dp(40))
+        textPaint.textSize = sp(style.fontSizeSp)
         setBackgroundColor(theme.background)
         isClickable = true
         isFocusable = true
+    }
+
+    fun applyStyle(newStyle: ReaderStyle) {
+        if (style == newStyle) return
+        val restoreOffset = currentCharOffset()
+        style = newStyle
+        textPaint.textSize = sp(style.fontSizeSp)
+        setPadding(dp(style.horizontalPaddingDp), dp(88), dp(style.horizontalPaddingDp), dp(40))
+        if (ready) {
+            rebuildLayout(restoreOffset)
+        }
     }
 
     fun setContent(text: String, readerTheme: ReaderTheme = theme, initialCharOffset: Int = 0) {
@@ -192,7 +205,7 @@ class ReaderSurfaceView(context: Context) : View(context) {
         val layout = StaticLayout.Builder
             .obtain(content, 0, content.length, textPaint, contentWidth)
             .setAlignment(Layout.Alignment.ALIGN_NORMAL)
-            .setLineSpacing(0f, 1.5f)
+            .setLineSpacing(0f, style.lineSpacingMultiplier)
             .setIncludePad(false)
             .setBreakStrategy(Layout.BREAK_STRATEGY_HIGH_QUALITY)
             .setHyphenationFrequency(Layout.HYPHENATION_FREQUENCY_NORMAL)
