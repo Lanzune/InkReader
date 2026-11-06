@@ -6,16 +6,16 @@
 
 | 模块 | 代码位置 | 文档 | 首个阶段 | 依赖 | 状态 |
 |---|---|---|---|---|---|
-| 内核与公开 API | `kernel/api`, `kernel/core` | [00-kernel](modules/00-kernel.md) | M1 | 无 | 待开始 |
-| QuickJS 插件宿主 | `plugin-host-quickjs` | [01-plugin-host](modules/01-plugin-host.md) | M1 | 内核 API | 待开始 |
-| 阅读引擎 | `reader-engine` | [02-reader-engine](modules/02-reader-engine.md) | M1 | 内核 API | 待开始 |
-| TXT 格式 | `formats/txt` | [03-format-txt](modules/03-format-txt.md) | M1 | 内核 API | 待开始 |
+| 内核与公开 API | `kernel/api`, `kernel/core` | [00-kernel](modules/00-kernel.md) | M1 | 无 | M1 已实现，等待真机 |
+| QuickJS 插件宿主 | `plugin-host-quickjs` | [01-plugin-host](modules/01-plugin-host.md) | M1 | 内核 API | M1 示例宿主已实现 |
+| 阅读引擎 | `reader-engine` | [02-reader-engine](modules/02-reader-engine.md) | M1 | 内核 API | M1 最小分页已实现 |
+| TXT 格式 | `formats/txt` | [03-format-txt](modules/03-format-txt.md) | M1 | 内核 API | M1 最小版已实现 |
 | EPUB 格式 | `formats/epub` | [04-format-epub](modules/04-format-epub.md) | M3 | 内核 API、阅读引擎 | 待开始 |
 | PDF 格式 | `formats/pdf` | [05-format-pdf](modules/05-format-pdf.md) | M4 | 内核 API | 待开始 |
 | HTML / Markdown | `formats/html-md` | [06-format-html-md](modules/06-format-html-md.md) | M4 | 内核 API、阅读引擎 | 待开始 |
-| UI 壳层 | `app` | [07-ui-shell](modules/07-ui-shell.md) | M1 | 内核 API | 待开始 |
-| 存储、缓存与隐私 | `kernel/core`, `docs` | [08-storage-privacy](modules/08-storage-privacy.md) | M1 | 内核 API | 待开始 |
-| 插件 SDK 与示例 | `sdk`, `plugin-host-quickjs` | 01-plugin-host、[plugin-api-v0](specs/plugin-api-v0.md) | M1/M6 | 插件宿主 | 待开始 |
+| UI 壳层 | `app` | [07-ui-shell](modules/07-ui-shell.md) | M1 | 内核 API | M1 已实现，等待真机 |
+| 存储、缓存与隐私 | `kernel/core`, `docs` | [08-storage-privacy](modules/08-storage-privacy.md) | M1 | 内核 API | M1 仅 SAF 读取；进度/缓存在 M2 |
+| 插件 SDK 与示例 | `sdk`, `plugin-host-quickjs` | 01-plugin-host、[plugin-api-v0](specs/plugin-api-v0.md) | M1/M6 | 插件宿主 | 示例脚本已接；SDK 待 M6 |
 | 质量与发布 | `benchmark`, `docs/quality` | [06-quality-gates](06-quality-gates.md) | M0 | 全部 | 持续 |
 
 ## 依赖方向

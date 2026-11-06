@@ -22,6 +22,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -42,6 +43,8 @@ import com.inkreader.kernel.api.ReaderTheme
 import com.inkreader.kernel.core.BookOpener
 import com.inkreader.kernel.core.ContentBookSource
 import com.inkreader.kernel.core.KernelEngine
+import com.inkreader.plugin.quickjs.PluginSnapshot
+import com.inkreader.plugin.quickjs.QuickJsPluginHost
 import com.inkreader.reader.engine.ReaderSurfaceView
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -70,6 +73,22 @@ private fun InkReaderApp() {
     val scope = rememberCoroutineScope()
     var screen: Screen by remember { mutableStateOf(Screen.Home) }
     var error: String? by remember { mutableStateOf(null) }
+    var pluginSnapshot: PluginSnapshot? by remember { mutableStateOf(null) }
+    var pluginError: String? by remember { mutableStateOf(null) }
+
+    LaunchedEffect(Unit) {
+        val result = runCatching {
+            withContext(Dispatchers.IO) {
+                val script = context.assets
+                    .open("plugins/sample-theme.js")
+                    .bufferedReader()
+                    .use { it.readText() }
+                QuickJsPluginHost().load(script)
+            }
+        }
+        result.onSuccess { pluginSnapshot = it }
+            .onFailure { pluginError = it.message ?: "示例插件加载失败" }
+    }
 
     val openDocument = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument(),
@@ -109,6 +128,8 @@ private fun InkReaderApp() {
     when (val current = screen) {
         Screen.Home -> HomeScreen(
             error = error,
+            pluginSnapshot = pluginSnapshot,
+            pluginError = pluginError,
             onOpen = { openDocument.launch(arrayOf("*/*")) },
         )
 
@@ -116,13 +137,19 @@ private fun InkReaderApp() {
 
         is Screen.Reading -> ReaderScreen(
             book = current.book,
+            pluginTheme = pluginSnapshot?.theme,
             onBack = { screen = Screen.Home },
         )
     }
 }
 
 @Composable
-private fun HomeScreen(error: String?, onOpen: () -> Unit) {
+private fun HomeScreen(
+    error: String?,
+    pluginSnapshot: PluginSnapshot?,
+    pluginError: String?,
+    onOpen: () -> Unit,
+) {
     Surface(modifier = Modifier.fillMaxSize()) {
         Column(
             modifier = Modifier
@@ -132,13 +159,42 @@ private fun HomeScreen(error: String?, onOpen: () -> Unit) {
             horizontalAlignment = Alignment.Start,
         ) {
             Text(text = "InkReader", style = MaterialTheme.typography.headlineLarge)
-            Text(text = "M1a · 本地 TXT 阅读链路", style = MaterialTheme.typography.titleMedium)
+            Text(text = "M1 · 本地 TXT 阅读 + QuickJS 示例插件", style = MaterialTheme.typography.titleMedium)
             Text(
                 text = KernelEngine().versionLabel(),
                 style = MaterialTheme.typography.bodySmall,
             )
             Button(onClick = onOpen) {
                 Text("打开本地 TXT")
+            }
+            when {
+                pluginSnapshot != null -> {
+                    Text(
+                        text = "插件主题：${pluginSnapshot.theme.name}",
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                    Text(
+                        text = pluginSnapshot.commandResult,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+
+                pluginError != null -> {
+                    Text(
+                        text = "示例插件加载失败：$pluginError",
+                        color = MaterialTheme.colorScheme.error,
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
+
+                else -> {
+                    Text(
+                        text = "正在加载 QuickJS 示例插件…",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
             }
             if (error != null) {
                 Text(
@@ -148,7 +204,7 @@ private fun HomeScreen(error: String?, onOpen: () -> Unit) {
                 )
             }
             Text(
-                text = "当前只支持 UTF-8 TXT；编码探测、EPUB、PDF 和插件在后续阶段。",
+                text = "当前只支持 UTF-8 TXT；编码探测、EPUB、PDF 和完整插件包在后续阶段。",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -175,11 +231,21 @@ private fun LoadingScreen() {
 }
 
 @Composable
-private fun ReaderScreen(book: BookDocument, onBack: () -> Unit) {
+private fun ReaderScreen(
+    book: BookDocument,
+    pluginTheme: ReaderTheme?,
+    onBack: () -> Unit,
+) {
     val chapter = book.chapters.first()
     var pageInfo by remember { mutableStateOf(PageInfo(0, 1)) }
-    var theme by remember { mutableStateOf<ReaderTheme>(BuiltInThemes.Light) }
+    var theme by remember { mutableStateOf(pluginTheme ?: BuiltInThemes.Light) }
     var controlsVisible by remember { mutableStateOf(true) }
+
+    LaunchedEffect(pluginTheme) {
+        if (pluginTheme != null && theme.id == BuiltInThemes.Light.id) {
+            theme = pluginTheme
+        }
+    }
 
     Box(modifier = Modifier.fillMaxSize()) {
         AndroidView(
@@ -221,7 +287,11 @@ private fun ReaderScreen(book: BookDocument, onBack: () -> Unit) {
                 )
                 TextButton(
                     onClick = {
-                        theme = if (theme.dark) BuiltInThemes.Light else BuiltInThemes.Dark
+                        theme = when {
+                            pluginTheme != null && theme.id == pluginTheme.id -> BuiltInThemes.Dark
+                            theme.dark -> BuiltInThemes.Light
+                            else -> BuiltInThemes.Dark
+                        }
                     },
                 ) {
                     Text(

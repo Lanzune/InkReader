@@ -2,7 +2,17 @@
 
 **代码：** `plugin-host-quickjs`  
 **阶段：** M1（最小）/ M6（完整）  
-**状态：** 未开始
+**状态：** M1 示例宿主已实现，等待真机
+
+## 当前实现（M1）
+
+- 依赖 `io.github.dokar3:quickjs-kt:1.0.15`
+- 从 APK assets 加载 `sample-theme.js`
+- 执行脚本，读取一个主题和一个命令结果
+- 失败不阻塞应用：首页显示插件错误，内置阅读仍可用
+- QuickJS 在应用进程内运行；独立进程、`.inkp` 安装、权限/配额在 M6/v1.1
+
+1.0.16 的 AAR metadata 要求 compileSdk 37 + AGP 9.1；当前项目使用 compileSdk 36 + AGP 8.13.2，因此暂锁 1.0.15。工具链升级后再评估。
 
 ## 目的
 
