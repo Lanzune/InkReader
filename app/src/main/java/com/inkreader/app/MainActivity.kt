@@ -7,6 +7,7 @@ import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
@@ -372,6 +373,17 @@ private fun ReaderScreen(
         applyWindowBrightness(activity, settings.brightness)
     }
 
+    fun leaveReader() {
+        onProgress(readerView?.currentCharOffset() ?: pageInfo.charOffset)
+        applyWindowBrightness(activity, originalBrightness)
+        insetsController?.show(WindowInsetsCompat.Type.navigationBars())
+        onBack()
+    }
+
+    BackHandler(enabled = !settingsVisible && !tocVisible) {
+        leaveReader()
+    }
+
     Box(modifier = Modifier.fillMaxSize()) {
         AndroidView(
             factory = { context ->
@@ -403,10 +415,7 @@ private fun ReaderScreen(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 TextButton(
-                    onClick = {
-                        onProgress(readerView?.currentCharOffset() ?: pageInfo.charOffset)
-                        onBack()
-                    },
+                    onClick = { leaveReader() },
                 ) {
                     Text("返回", color = Color(theme.foreground))
                 }
@@ -481,6 +490,11 @@ private fun ReaderSettingsDialog(
     onEncodingChange: (String?) -> Unit,
 ) {
     var encodingMenuExpanded by remember { mutableStateOf(false) }
+    var fontSize by remember(settings.fontSizeSp) { mutableStateOf(settings.fontSizeSp) }
+    var lineSpacing by remember(settings.lineSpacing) { mutableStateOf(settings.lineSpacing) }
+    var padding by remember(settings.horizontalPaddingDp) {
+        mutableStateOf(settings.horizontalPaddingDp.toFloat())
+    }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -512,27 +526,39 @@ private fun ReaderSettingsDialog(
                     }
                 }
 
-                Text("字号：${settings.fontSizeSp.roundToInt()} sp", style = MaterialTheme.typography.labelLarge)
+                Text("字号：${fontSize.roundToInt()} sp", style = MaterialTheme.typography.labelLarge)
                 Slider(
-                    value = settings.fontSizeSp,
-                    onValueChange = { onSettingsChange(settings.copy(fontSizeSp = it)) },
+                    value = fontSize,
+                    onValueChange = { fontSize = it },
+                    onValueChangeFinished = {
+                        onSettingsChange(settings.copy(fontSizeSp = fontSize))
+                    },
                     valueRange = 14f..30f,
                 )
 
-                Text("行距：${"%.1f".format(settings.lineSpacing)} 倍", style = MaterialTheme.typography.labelLarge)
+                Text("行距：${"%.1f".format(lineSpacing)} 倍", style = MaterialTheme.typography.labelLarge)
                 Slider(
-                    value = settings.lineSpacing,
-                    onValueChange = { onSettingsChange(settings.copy(lineSpacing = it)) },
+                    value = lineSpacing,
+                    onValueChange = { lineSpacing = it },
+                    onValueChangeFinished = {
+                        onSettingsChange(settings.copy(lineSpacing = lineSpacing))
+                    },
                     valueRange = 1.2f..2.0f,
                 )
 
-                Text("左右边距：${settings.horizontalPaddingDp} dp", style = MaterialTheme.typography.labelLarge)
+                Text("左右边距：${padding.roundToInt()} dp", style = MaterialTheme.typography.labelLarge)
                 Slider(
-                    value = settings.horizontalPaddingDp.toFloat(),
-                    onValueChange = {
-                        onSettingsChange(settings.copy(horizontalPaddingDp = it.roundToInt()))
+                    value = padding,
+                    onValueChange = { padding = it },
+                    onValueChangeFinished = {
+                        onSettingsChange(settings.copy(horizontalPaddingDp = padding.roundToInt()))
                     },
                     valueRange = 8f..40f,
+                )
+                Text(
+                    text = "拖动字号/行距/边距后松手生效，避免阅读页连续重排。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
 
                 Text(
