@@ -1,6 +1,9 @@
 package com.inkreader.app
 
 import android.content.Intent
+import android.app.Activity
+import android.content.Context
+import android.content.ContextWrapper
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -22,6 +25,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -32,9 +36,15 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LifecycleEventEffect
 import com.inkreader.formats.txt.TxtFormatProvider
 import com.inkreader.kernel.api.BookDocument
 import com.inkreader.kernel.api.BuiltInThemes
@@ -241,6 +251,28 @@ private fun ReaderScreen(
     var theme by remember { mutableStateOf(pluginTheme ?: BuiltInThemes.Light) }
     var controlsVisible by remember { mutableStateOf(true) }
 
+    val activity = LocalContext.current.findActivity()
+    val view = LocalView.current
+    val insetsController = remember(activity, view) {
+        activity?.window?.let { window ->
+            WindowCompat.getInsetsController(window, view).apply {
+                systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+            }
+        }
+    }
+
+    DisposableEffect(insetsController) {
+        insetsController?.hide(WindowInsetsCompat.Type.navigationBars())
+        onDispose {
+            insetsController?.show(WindowInsetsCompat.Type.navigationBars())
+            insetsController?.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_DEFAULT
+        }
+    }
+
+    LifecycleEventEffect(Lifecycle.Event.ON_RESUME) {
+        insetsController?.hide(WindowInsetsCompat.Type.navigationBars())
+    }
+
     LaunchedEffect(pluginTheme) {
         if (pluginTheme != null && theme.id == BuiltInThemes.Light.id) {
             theme = pluginTheme
@@ -302,4 +334,10 @@ private fun ReaderScreen(
             }
         }
     }
+}
+
+private tailrec fun Context.findActivity(): Activity? = when (this) {
+    is Activity -> this
+    is ContextWrapper -> baseContext.findActivity()
+    else -> null
 }

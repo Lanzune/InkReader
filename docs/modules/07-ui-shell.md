@@ -9,6 +9,7 @@
 - Compose 首页 + SAF 打开文件
 - AndroidView 承载 `ReaderSurfaceView`
 - 顶部控制栏：返回、标题、页码、日夜
+- M1d：进入阅读器隐藏三键导航栏，底部上滑由系统临时呼出，退出恢复
 - 首页展示 QuickJS 示例主题和命令结果
 - 设置页、最近阅读、命令面板留到 M2/M5
 
