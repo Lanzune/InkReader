@@ -58,10 +58,14 @@ nav = """<html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.
 """
 
 chapters = {
-    "chapter1.xhtml": """<html xmlns="http://www.w3.org/1999/xhtml"><head><title>第一章 起点</title></head><body>
+    "chapter1.xhtml": """<html xmlns="http://www.w3.org/1999/xhtml"><head><title>第一章 起点</title>
+<style>.center { text-align: center; } .indent { text-indent: 2em; }</style>
+</head><body>
 <h1>第一章 起点</h1>
 <p><b>夜航</b>从一盏灯开始。</p>
 <p align="center">—— 居中示例 ——</p>
+<p class="center">—— CSS 居中 ——</p>
+<p class="indent">首行缩进示例：这一段使用 class CSS 的 text-indent。</p>
 <p>脚注<a href="chapter3.xhtml#note1">[1]</a></p>
 <p><i>风从窗外经过</i>，带着一点潮湿的味道。</p>
 <p>她把书翻到第一页，却先看了一会儿空白。</p>

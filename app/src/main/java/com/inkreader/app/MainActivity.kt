@@ -212,7 +212,8 @@ private fun InkReaderApp() {
                     persistProgress = false,
                 )
             }.onFailure { failure ->
-                error = failure.message ?: "示例 EPUB 打开失败"
+                val cause = failure.cause?.let { "${it.javaClass.simpleName}: ${it.message}" }
+                error = "示例 EPUB 打开失败：${failure.javaClass.simpleName}: ${failure.message ?: cause ?: ""}"
                 screen = Screen.Home
             }
         }
@@ -766,6 +767,12 @@ private fun buildReaderText(
             )
             com.inkreader.kernel.api.InlineStyleKind.ALIGN_RIGHT -> builder.setSpan(
                 AlignmentSpan.Standard(Layout.Alignment.ALIGN_OPPOSITE),
+                start,
+                end,
+                Spannable.SPAN_EXCLUSIVE_EXCLUSIVE,
+            )
+            com.inkreader.kernel.api.InlineStyleKind.FIRST_LINE_INDENT -> builder.setSpan(
+                LeadingMarginSpan.Standard(indentPx, 0),
                 start,
                 end,
                 Spannable.SPAN_EXCLUSIVE_EXCLUSIVE,

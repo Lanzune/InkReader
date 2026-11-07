@@ -114,11 +114,16 @@ internal object EpubFixture {
             zip.putNextEntry(ZipEntry("OEBPS/chapter1.xhtml"))
             zip.write(
                 """
-                <html><head><title>第一章</title></head><body>
+                <html><head><title>第一章</title><style>
+                  .center { text-align: center; }
+                  .indent { text-indent: 2em; }
+                </style></head><body>
                   <h1>第一章</h1>
                   <p><b>这是</b>&amp;第一段。</p>
                   <p><i>第二段</i>&nbsp;内容。</p>
                   <p align="center">居中</p>
+                  <p class="center">CSS居中</p>
+                  <p class="indent">缩进段落</p>
                   <p>脚注<a href="#note1">[1]</a></p>
                   <p><a id="note1"></a>注释内容。</p>
                 </body></html>

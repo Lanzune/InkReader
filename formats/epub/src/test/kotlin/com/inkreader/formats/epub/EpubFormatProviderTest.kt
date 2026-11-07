@@ -39,6 +39,7 @@ class EpubFormatProviderTest {
         assertTrue(document.chapters.single().styles.any { it.kind.name == "ITALIC" })
         assertTrue(document.chapters.single().styles.any { it.kind.name == "HEADING1" })
         assertTrue(document.chapters.single().styles.any { it.kind.name == "ALIGN_CENTER" })
+        assertTrue(document.chapters.single().styles.any { it.kind.name == "FIRST_LINE_INDENT" })
 
         val link = document.chapters.single().links.single()
         assertTrue(link.targetOffset > link.start)

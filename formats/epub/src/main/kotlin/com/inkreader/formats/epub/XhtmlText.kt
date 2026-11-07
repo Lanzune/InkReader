@@ -73,12 +73,18 @@ internal object XhtmlText {
     private val anchorClosePattern = Regex("(?i)</a\\s*>")
     private val hrefPattern = Regex("""(?i)\bhref\s*=\s*["']([^"']*)["']""")
     private val idPattern = Regex("""(?i)\bid\s*=\s*["']([^"']*)["']""")
+    private val classPattern = Regex("""(?i)\bclass\s*=\s*["']([^"']*)["']""")
+    private val styleBlockPattern = Regex("(?is)<style\\b[^>]*>(.*?)</style\\s*>")
+    private val cssRulePattern = Regex("(?is)([^{}]+)\\{([^{}]*)\\}")
+    private val textIndentPattern = Regex("""(?i)\btext-indent\s*:\s*([^;]+)""")
     private const val ALIGN_CENTER_OPEN = '\uE010'
     private const val ALIGN_RIGHT_OPEN = '\uE011'
     private const val ALIGN_CLOSE = '\uE012'
     private const val LINK_OPEN = '\uE020'
     private const val LINK_CLOSE = '\uE021'
     private const val ANCHOR = '\uE022'
+    private const val FIRST_INDENT_OPEN = '\uE030'
+    private const val FIRST_INDENT_CLOSE = '\uE031'
     private const val IMAGE_PLACEHOLDER = '\uFFFC'
     private const val BOLD_OPEN = '\uE000'
     private const val BOLD_CLOSE = '\uE001'
@@ -99,8 +105,9 @@ internal object XhtmlText {
         val images = mutableListOf<Pair<String, String>>()
         val linkTargets = mutableListOf<String>()
         val anchorIds = mutableListOf<String>()
+        val css = parseCss(html)
         var text = markLinks(html, linkTargets, anchorIds)
-        text = markAlignment(text)
+        text = markAlignment(text, css)
         text = markStyles(text)
         text = imagePattern.replace(text) { match ->
             val tag = match.value
@@ -143,6 +150,8 @@ internal object XhtmlText {
         var indentStart = -1
         var alignStart = -1
         var alignKind: InlineStyleKind? = null
+        var firstIndentDepth = 0
+        var firstIndentStart = -1
         var linkIndex = 0
         var anchorIndex = 0
         val linkStack = ArrayDeque<Pair<String, Int>>()
@@ -271,6 +280,27 @@ internal object XhtmlText {
                     alignKind = InlineStyleKind.ALIGN_RIGHT
                 }
                 ALIGN_CLOSE -> closeAlignment()
+                FIRST_INDENT_OPEN -> {
+                    if (firstIndentDepth == 0) firstIndentStart = clean.length
+                    firstIndentDepth += 1
+                }
+                FIRST_INDENT_CLOSE -> {
+                    if (firstIndentDepth > 0) {
+                        firstIndentDepth -= 1
+                        if (firstIndentDepth == 0 && firstIndentStart >= 0) {
+                            if (firstIndentStart < clean.length) {
+                                styles.add(
+                                    RichStyle(
+                                        firstIndentStart,
+                                        clean.length,
+                                        InlineStyleKind.FIRST_LINE_INDENT,
+                                    ),
+                                )
+                            }
+                            firstIndentStart = -1
+                        }
+                    }
+                }
                 LINK_OPEN -> {
                     if (linkIndex < linkTargets.size) {
                         linkStack.addLast(linkTargets[linkIndex] to clean.length)
@@ -294,6 +324,11 @@ internal object XhtmlText {
             }
         }
         closeAlignment()
+        if (firstIndentStart >= 0 && firstIndentStart < clean.length) {
+            styles.add(
+                RichStyle(firstIndentStart, clean.length, InlineStyleKind.FIRST_LINE_INDENT),
+            )
+        }
         val cleanText = clean.toString()
 
         val richImages = mutableListOf<RichImage>()
@@ -340,35 +375,89 @@ internal object XhtmlText {
         return text
     }
 
-    private fun markAlignment(html: String): String {
+    private fun markAlignment(html: String, css: Map<String, CssStyle>): String {
         var text = paragraphOpenPattern.replace(html) { match ->
-            val attributes = match.groupValues[1]
-            val marker = alignmentFor(attributes)
-            if (marker == null) match.value else "$marker${match.value}"
+            val marker = blockMarkers(match.groupValues[1], "p", css)
+            if (marker.isEmpty()) match.value else "$marker${match.value}"
         }
         text = paragraphClosePattern.replace(text) { match ->
-            "$ALIGN_CLOSE${match.value}"
+            "$ALIGN_CLOSE$FIRST_INDENT_CLOSE${match.value}"
         }
         text = headingOpenPattern.replace(text) { match ->
-            val marker = alignmentFor(match.groupValues[1])
-            if (marker == null) match.value else "$marker${match.value}"
+            val marker = blockMarkers(match.groupValues[1], "h", css)
+            if (marker.isEmpty()) match.value else "$marker${match.value}"
         }
         text = headingClosePattern.replace(text) { match ->
-            "$ALIGN_CLOSE${match.value}"
+            "$ALIGN_CLOSE$FIRST_INDENT_CLOSE${match.value}"
         }
         return text
     }
 
-    private fun alignmentFor(attributes: String): String? {
-        val value = alignAttributePattern.find(attributes)?.groupValues?.get(1)
+    private fun blockMarkers(
+        attributes: String,
+        tag: String,
+        css: Map<String, CssStyle>,
+    ): String {
+        val inlineAlign = alignAttributePattern.find(attributes)?.groupValues?.get(1)
             ?: textAlignPattern.find(attributes)?.groupValues?.get(1)
-            ?: return null
-        return when (value.lowercase()) {
-            "center" -> ALIGN_CENTER_OPEN.toString()
-            "right" -> ALIGN_RIGHT_OPEN.toString()
-            else -> null
+        val classes = classPattern.find(attributes)
+            ?.groupValues?.get(1)
+            ?.split(Regex("\\s+"))
+            ?.filter { it.isNotBlank() }
+            .orEmpty()
+        val classStyles = classes.mapNotNull { css[".${it.lowercase()}"] }
+        val tagStyle = css[tag]
+        val align = inlineAlign
+            ?: classStyles.firstNotNullOfOrNull { it.align }
+            ?: tagStyle?.align
+        val indent = (textIndentPattern.find(attributes)?.groupValues?.get(1)
+            ?.let(::isNonZeroIndent)
+            ?: classStyles.any { it.firstLineIndent }) ||
+            tagStyle?.firstLineIndent == true
+
+        val marker = StringBuilder()
+        when (align?.lowercase()) {
+            "center" -> marker.append(ALIGN_CENTER_OPEN)
+            "right" -> marker.append(ALIGN_RIGHT_OPEN)
         }
+        if (indent) marker.append(FIRST_INDENT_OPEN)
+        return marker.toString()
     }
+
+    private fun isNonZeroIndent(value: String): Boolean {
+        val clean = value.trim().lowercase()
+        if (clean.isEmpty() || clean == "none") return false
+        return !Regex("""0(?:\.0+)?(?:px|em|rem|%|pt|pc|in|cm|mm)?""").matches(clean)
+    }
+
+    private fun parseCss(html: String): Map<String, CssStyle> {
+        val result = LinkedHashMap<String, CssStyle>()
+        for (block in styleBlockPattern.findAll(html)) {
+            for (rule in cssRulePattern.findAll(block.groupValues[1])) {
+                val selectors = rule.groupValues[1]
+                    .split(',')
+                    .map { it.trim().lowercase() }
+                    .filter { it.isNotEmpty() }
+                if (selectors.isEmpty()) continue
+                val body = rule.groupValues[2]
+                val align = textAlignPattern.find(body)?.groupValues?.get(1)
+                val indent = textIndentPattern.find(body)?.groupValues?.get(1)
+                    ?.let(::isNonZeroIndent)
+                    ?: false
+                if (align == null && !indent) continue
+                val style = CssStyle(align = align, firstLineIndent = indent)
+                for (selector in selectors) {
+                    result[selector] = style
+                }
+            }
+        }
+        return result
+    }
+
+    private data class CssStyle(
+        val align: String?,
+        val firstLineIndent: Boolean,
+    )
 
     private fun markStyles(html: String): String {
         var text = boldTagPattern.replace(html) { match ->
