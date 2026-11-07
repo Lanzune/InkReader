@@ -42,6 +42,7 @@ class ReaderSurfaceView(context: Context) : View(context) {
     private var pendingCharOffset: Int? = null
     private var ready = false
     private var pageBitmap: Bitmap? = null
+    private var pageSnapshotCache: Bitmap? = null
     private var pageAnimator: ValueAnimator? = null
     private var animationProgress = 0f
     private var animationDirection = 1
@@ -106,6 +107,7 @@ class ReaderSurfaceView(context: Context) : View(context) {
     fun applyStyle(newStyle: ReaderStyle) {
         if (style == newStyle) return
         cancelPageAnimation()
+        releasePageSnapshot()
         val restoreOffset = currentCharOffset()
         style = newStyle
         textPaint.textSize = sp(style.fontSizeSp)
@@ -118,6 +120,7 @@ class ReaderSurfaceView(context: Context) : View(context) {
 
     fun setContent(text: CharSequence, readerTheme: ReaderTheme = theme, initialCharOffset: Int = 0) {
         cancelPageAnimation()
+        releasePageSnapshot()
         content = text
         theme = readerTheme
         textPaint.color = theme.foreground
@@ -151,6 +154,8 @@ class ReaderSurfaceView(context: Context) : View(context) {
         theme = readerTheme
         textPaint.color = theme.foreground
         setBackgroundColor(theme.background)
+        cancelPageAnimation()
+        releasePageSnapshot()
         renderedPageKey = -1
         invalidate()
     }
@@ -202,6 +207,8 @@ class ReaderSurfaceView(context: Context) : View(context) {
 
     override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
         super.onSizeChanged(w, h, oldw, oldh)
+        cancelPageAnimation()
+        releasePageSnapshot()
         if (ready) {
             val restoreOffset = pendingCharOffset
             rebuildLayout(restoreOffset)
@@ -236,7 +243,19 @@ class ReaderSurfaceView(context: Context) : View(context) {
 
     private fun capturePage(): Bitmap? {
         if (width <= 0 || height <= 0 || obtainPageLayout() == null) return null
-        val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.RGB_565)
+        val existing = pageSnapshotCache
+        val bitmap = if (existing != null &&
+            !existing.isRecycled &&
+            existing.width == width &&
+            existing.height == height
+        ) {
+            existing
+        } else {
+            existing?.recycle()
+            Bitmap.createBitmap(width, height, Bitmap.Config.RGB_565).also {
+                pageSnapshotCache = it
+            }
+        }
         val canvas = Canvas(bitmap)
         canvas.drawColor(theme.background)
         drawCurrentPage(canvas)
@@ -256,7 +275,6 @@ class ReaderSurfaceView(context: Context) : View(context) {
             }
             addListener(object : android.animation.AnimatorListenerAdapter() {
                 override fun onAnimationEnd(animation: android.animation.Animator) {
-                    pageBitmap?.recycle()
                     pageBitmap = null
                     pageAnimator = null
                     animationProgress = 0f
@@ -270,13 +288,19 @@ class ReaderSurfaceView(context: Context) : View(context) {
     private fun cancelPageAnimation() {
         pageAnimator?.cancel()
         pageAnimator = null
-        pageBitmap?.recycle()
         pageBitmap = null
         animationProgress = 0f
     }
 
+    private fun releasePageSnapshot() {
+        pageBitmap = null
+        pageSnapshotCache?.recycle()
+        pageSnapshotCache = null
+    }
+
     override fun onDetachedFromWindow() {
         cancelPageAnimation()
+        releasePageSnapshot()
         super.onDetachedFromWindow()
     }
 
