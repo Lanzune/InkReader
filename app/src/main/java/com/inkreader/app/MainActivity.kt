@@ -43,6 +43,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -579,6 +580,7 @@ private fun ReaderScreen(
         AndroidView(
             factory = { context ->
                 ReaderSurfaceView(context).apply {
+                    pageTurnAnimationEnabled = settings.pageTurnAnimation
                     applyStyle(style)
                     onPageChanged = { info ->
                         pageInfo = info
@@ -594,6 +596,7 @@ private fun ReaderScreen(
                 }
             },
             update = { surface ->
+                surface.pageTurnAnimationEnabled = settings.pageTurnAnimation
                 surface.setTheme(theme)
                 surface.applyStyle(style)
             },
@@ -757,6 +760,23 @@ private fun ReaderSettingsDialog(
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        text = "翻页动画",
+                        modifier = Modifier.weight(1f),
+                        style = MaterialTheme.typography.labelLarge,
+                    )
+                    Switch(
+                        checked = settings.pageTurnAnimation,
+                        onCheckedChange = {
+                            onSettingsChange(settings.copy(pageTurnAnimation = it))
+                        },
+                    )
+                }
 
                 Text(
                     text = "亮度：${settings.brightness?.let { "${(it * 100).roundToInt()}%" } ?: "跟随系统"}",

@@ -14,16 +14,17 @@
 
 ## 当前状态
 
-**阶段：M4 PDF/HTML/Markdown 已完成。**
+**阶段：M5a 翻页动画已真机验证。**
 
 - M0～M2：TXT 阅读器完成，标签 `m2-txt-reader`
 - M3：EPUB 完成，标签 `m3-epub`
-- M4：PDF 页面/缩放/夜间、HTML/Markdown 文本与内部链接
-- 标签 `m4-docs`
+- M4：PDF/HTML/Markdown 完成，标签 `m4-docs`
+- M5a：220ms 翻页滑动、设置开关
+- M5b：命令面板（下一步）
 - Android 16（API 36）
 - 无 `INTERNET`，16 KB 对齐，v2 签名
 
-下一步：M5 阅读体验（亮度/主题/翻页/命令面板）。
+下一步：M5b 命令面板，随后 M5c 性能/合并。
 
 ## 目录结构
 

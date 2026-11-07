@@ -1,6 +1,8 @@
 package com.inkreader.reader.engine
 
+import android.animation.ValueAnimator
 import android.content.Context
+import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Typeface
 import android.text.Layout
@@ -39,6 +41,12 @@ class ReaderSurfaceView(context: Context) : View(context) {
     private var currentPage: Int = 0
     private var pendingCharOffset: Int? = null
     private var ready = false
+    private var pageBitmap: Bitmap? = null
+    private var pageAnimator: ValueAnimator? = null
+    private var animationProgress = 0f
+    private var animationDirection = 1
+
+    var pageTurnAnimationEnabled: Boolean = true
 
     var onPageChanged: ((PageInfo) -> Unit)? = null
     var onCenterTap: (() -> Unit)? = null
@@ -97,6 +105,7 @@ class ReaderSurfaceView(context: Context) : View(context) {
 
     fun applyStyle(newStyle: ReaderStyle) {
         if (style == newStyle) return
+        cancelPageAnimation()
         val restoreOffset = currentCharOffset()
         style = newStyle
         textPaint.textSize = sp(style.fontSizeSp)
@@ -108,6 +117,7 @@ class ReaderSurfaceView(context: Context) : View(context) {
     }
 
     fun setContent(text: CharSequence, readerTheme: ReaderTheme = theme, initialCharOffset: Int = 0) {
+        cancelPageAnimation()
         content = text
         theme = readerTheme
         textPaint.color = theme.foreground
@@ -123,6 +133,7 @@ class ReaderSurfaceView(context: Context) : View(context) {
 
     fun goToCharOffset(charOffset: Int) {
         if (textLayout == null || pageStarts.isEmpty()) return
+        cancelPageAnimation()
         currentPage = pageForOffset(charOffset)
         renderedPageKey = -1
         invalidate()
@@ -163,19 +174,23 @@ class ReaderSurfaceView(context: Context) : View(context) {
 
     fun nextPage(): Boolean {
         if (currentPage >= pageStarts.size - 1) return false
+        cancelPageAnimation()
+        val snapshot = if (pageTurnAnimationEnabled) capturePage() else null
         currentPage += 1
         renderedPageKey = -1
-        invalidate()
         notifyPage()
+        if (snapshot != null) startPageAnimation(snapshot, 1) else invalidate()
         return true
     }
 
     fun previousPage(): Boolean {
         if (currentPage <= 0) return false
+        cancelPageAnimation()
+        val snapshot = if (pageTurnAnimationEnabled) capturePage() else null
         currentPage -= 1
         renderedPageKey = -1
-        invalidate()
         notifyPage()
+        if (snapshot != null) startPageAnimation(snapshot, -1) else invalidate()
         return true
     }
 
@@ -195,9 +210,18 @@ class ReaderSurfaceView(context: Context) : View(context) {
 
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
-        val pageLayout = obtainPageLayout() ?: return
+        drawCurrentPage(canvas)
+        val bitmap = pageBitmap ?: return
+        val offset = if (animationDirection > 0) {
+            -animationProgress * width
+        } else {
+            animationProgress * width
+        }
+        canvas.drawBitmap(bitmap, offset, 0f, null)
+    }
 
-        // Draw only the current page's own layout, so previous lines cannot enter the top safe area.
+    private fun drawCurrentPage(canvas: Canvas) {
+        val pageLayout = obtainPageLayout() ?: return
         canvas.save()
         canvas.clipRect(
             contentLeft,
@@ -208,6 +232,52 @@ class ReaderSurfaceView(context: Context) : View(context) {
         canvas.translate(contentLeft.toFloat(), (contentTop + pageTopInset).toFloat())
         pageLayout.draw(canvas)
         canvas.restore()
+    }
+
+    private fun capturePage(): Bitmap? {
+        if (width <= 0 || height <= 0 || obtainPageLayout() == null) return null
+        val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.RGB_565)
+        val canvas = Canvas(bitmap)
+        canvas.drawColor(theme.background)
+        drawCurrentPage(canvas)
+        return bitmap
+    }
+
+    private fun startPageAnimation(snapshot: Bitmap, direction: Int) {
+        cancelPageAnimation()
+        pageBitmap = snapshot
+        animationDirection = direction
+        animationProgress = 0f
+        pageAnimator = ValueAnimator.ofFloat(0f, 1f).apply {
+            duration = 220L
+            addUpdateListener {
+                animationProgress = it.animatedValue as Float
+                invalidate()
+            }
+            addListener(object : android.animation.AnimatorListenerAdapter() {
+                override fun onAnimationEnd(animation: android.animation.Animator) {
+                    pageBitmap?.recycle()
+                    pageBitmap = null
+                    pageAnimator = null
+                    animationProgress = 0f
+                    invalidate()
+                }
+            })
+            start()
+        }
+    }
+
+    private fun cancelPageAnimation() {
+        pageAnimator?.cancel()
+        pageAnimator = null
+        pageBitmap?.recycle()
+        pageBitmap = null
+        animationProgress = 0f
+    }
+
+    override fun onDetachedFromWindow() {
+        cancelPageAnimation()
+        super.onDetachedFromWindow()
     }
 
     override fun onTouchEvent(event: MotionEvent): Boolean {
