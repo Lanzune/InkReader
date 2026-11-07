@@ -36,6 +36,7 @@ class EpubFormatProviderTest {
 
         assertTrue(document.chapters.single().styles.any { it.kind.name == "BOLD" })
         assertTrue(document.chapters.single().styles.any { it.kind.name == "ITALIC" })
+        assertTrue(document.chapters.single().styles.any { it.kind.name == "HEADING1" })
     }
 
     @Test

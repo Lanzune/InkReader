@@ -29,6 +29,10 @@ data class ChapterImage(
 enum class InlineStyleKind {
     BOLD,
     ITALIC,
+    HEADING1,
+    HEADING2,
+    HEADING3,
+    INDENT,
 }
 
 data class ChapterStyle(

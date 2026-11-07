@@ -13,6 +13,8 @@ import android.text.SpannableStringBuilder
 import android.text.Layout
 import android.text.style.AlignmentSpan
 import android.text.style.ImageSpan
+import android.text.style.LeadingMarginSpan
+import android.text.style.RelativeSizeSpan
 import android.text.style.StyleSpan
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
@@ -686,20 +688,73 @@ private fun buildReaderText(
     if (chapter.images.isEmpty() && chapter.styles.isEmpty()) return chapter.text
 
     val builder = SpannableStringBuilder(chapter.text)
+    val indentPx = (24 * context.resources.displayMetrics.density).toInt()
     for (style in chapter.styles) {
         val start = style.start.coerceIn(0, builder.length)
         val end = style.endExclusive.coerceIn(start, builder.length)
         if (start >= end) continue
-        val typeface = when (style.kind) {
-            com.inkreader.kernel.api.InlineStyleKind.BOLD -> Typeface.BOLD
-            com.inkreader.kernel.api.InlineStyleKind.ITALIC -> Typeface.ITALIC
+        when (style.kind) {
+            com.inkreader.kernel.api.InlineStyleKind.BOLD -> builder.setSpan(
+                StyleSpan(Typeface.BOLD),
+                start,
+                end,
+                Spannable.SPAN_EXCLUSIVE_EXCLUSIVE,
+            )
+            com.inkreader.kernel.api.InlineStyleKind.ITALIC -> builder.setSpan(
+                StyleSpan(Typeface.ITALIC),
+                start,
+                end,
+                Spannable.SPAN_EXCLUSIVE_EXCLUSIVE,
+            )
+            com.inkreader.kernel.api.InlineStyleKind.HEADING1 -> {
+                builder.setSpan(
+                    RelativeSizeSpan(1.45f),
+                    start,
+                    end,
+                    Spannable.SPAN_EXCLUSIVE_EXCLUSIVE,
+                )
+                builder.setSpan(
+                    StyleSpan(Typeface.BOLD),
+                    start,
+                    end,
+                    Spannable.SPAN_EXCLUSIVE_EXCLUSIVE,
+                )
+            }
+            com.inkreader.kernel.api.InlineStyleKind.HEADING2 -> {
+                builder.setSpan(
+                    RelativeSizeSpan(1.28f),
+                    start,
+                    end,
+                    Spannable.SPAN_EXCLUSIVE_EXCLUSIVE,
+                )
+                builder.setSpan(
+                    StyleSpan(Typeface.BOLD),
+                    start,
+                    end,
+                    Spannable.SPAN_EXCLUSIVE_EXCLUSIVE,
+                )
+            }
+            com.inkreader.kernel.api.InlineStyleKind.HEADING3 -> {
+                builder.setSpan(
+                    RelativeSizeSpan(1.15f),
+                    start,
+                    end,
+                    Spannable.SPAN_EXCLUSIVE_EXCLUSIVE,
+                )
+                builder.setSpan(
+                    StyleSpan(Typeface.BOLD),
+                    start,
+                    end,
+                    Spannable.SPAN_EXCLUSIVE_EXCLUSIVE,
+                )
+            }
+            com.inkreader.kernel.api.InlineStyleKind.INDENT -> builder.setSpan(
+                LeadingMarginSpan.Standard(indentPx),
+                start,
+                end,
+                Spannable.SPAN_EXCLUSIVE_EXCLUSIVE,
+            )
         }
-        builder.setSpan(
-            StyleSpan(typeface),
-            start,
-            end,
-            Spannable.SPAN_EXCLUSIVE_EXCLUSIVE,
-        )
     }
     if (chapter.images.isEmpty() || resources.isEmpty()) return builder
     val metrics = context.resources.displayMetrics

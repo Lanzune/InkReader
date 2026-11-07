@@ -43,11 +43,24 @@ internal object XhtmlText {
     private val titlePattern = Regex("(?is)<title[^>]*>(.*?)</title\\s*>")
     private val boldTagPattern = Regex("(?i)<(/?)b\\b[^>]*>|</?strong\\b[^>]*>")
     private val italicTagPattern = Regex("(?i)<(/?)i\\b[^>]*>|</?em\\b[^>]*>")
+    private val h1TagPattern = Regex("(?i)<(/?)h1\\b[^>]*>")
+    private val h2TagPattern = Regex("(?i)<(/?)h2\\b[^>]*>")
+    private val h3TagPattern = Regex("(?i)<(/?)h3\\b[^>]*>")
+    private val h4TagPattern = Regex("(?i)<(/?)h[4-6]\\b[^>]*>")
+    private val blockquoteTagPattern = Regex("(?i)<(/?)blockquote\\b[^>]*>")
     private const val IMAGE_PLACEHOLDER = '\uFFFC'
     private const val BOLD_OPEN = '\uE000'
     private const val BOLD_CLOSE = '\uE001'
     private const val ITALIC_OPEN = '\uE002'
     private const val ITALIC_CLOSE = '\uE003'
+    private const val H1_OPEN = '\uE004'
+    private const val H1_CLOSE = '\uE005'
+    private const val H2_OPEN = '\uE006'
+    private const val H2_CLOSE = '\uE007'
+    private const val H3_OPEN = '\uE008'
+    private const val H3_CLOSE = '\uE009'
+    private const val INDENT_OPEN = '\uE00A'
+    private const val INDENT_CLOSE = '\uE00B'
 
     fun extract(html: String): String = extractRich(html).text
 
@@ -85,6 +98,14 @@ internal object XhtmlText {
         var boldStart = -1
         var italicDepth = 0
         var italicStart = -1
+        var h1Depth = 0
+        var h1Start = -1
+        var h2Depth = 0
+        var h2Start = -1
+        var h3Depth = 0
+        var h3Start = -1
+        var indentDepth = 0
+        var indentStart = -1
         for (character in text) {
             when (character) {
                 BOLD_OPEN -> {
@@ -119,6 +140,74 @@ internal object XhtmlText {
                         }
                     }
                 }
+                H1_OPEN -> {
+                    if (h1Depth == 0) h1Start = clean.length
+                    h1Depth += 1
+                }
+                H1_CLOSE -> {
+                    if (h1Depth > 0) {
+                        h1Depth -= 1
+                        if (h1Depth == 0 && h1Start >= 0) {
+                            if (h1Start < clean.length) {
+                                styles.add(
+                                    RichStyle(h1Start, clean.length, InlineStyleKind.HEADING1),
+                                )
+                            }
+                            h1Start = -1
+                        }
+                    }
+                }
+                H2_OPEN -> {
+                    if (h2Depth == 0) h2Start = clean.length
+                    h2Depth += 1
+                }
+                H2_CLOSE -> {
+                    if (h2Depth > 0) {
+                        h2Depth -= 1
+                        if (h2Depth == 0 && h2Start >= 0) {
+                            if (h2Start < clean.length) {
+                                styles.add(
+                                    RichStyle(h2Start, clean.length, InlineStyleKind.HEADING2),
+                                )
+                            }
+                            h2Start = -1
+                        }
+                    }
+                }
+                H3_OPEN -> {
+                    if (h3Depth == 0) h3Start = clean.length
+                    h3Depth += 1
+                }
+                H3_CLOSE -> {
+                    if (h3Depth > 0) {
+                        h3Depth -= 1
+                        if (h3Depth == 0 && h3Start >= 0) {
+                            if (h3Start < clean.length) {
+                                styles.add(
+                                    RichStyle(h3Start, clean.length, InlineStyleKind.HEADING3),
+                                )
+                            }
+                            h3Start = -1
+                        }
+                    }
+                }
+                INDENT_OPEN -> {
+                    if (indentDepth == 0) indentStart = clean.length
+                    indentDepth += 1
+                }
+                INDENT_CLOSE -> {
+                    if (indentDepth > 0) {
+                        indentDepth -= 1
+                        if (indentDepth == 0 && indentStart >= 0) {
+                            if (indentStart < clean.length) {
+                                styles.add(
+                                    RichStyle(indentStart, clean.length, InlineStyleKind.INDENT),
+                                )
+                            }
+                            indentStart = -1
+                        }
+                    }
+                }
                 else -> clean.append(character)
             }
         }
@@ -142,6 +231,21 @@ internal object XhtmlText {
         }
         text = italicTagPattern.replace(text) { match ->
             if (match.value.startsWith("</")) ITALIC_CLOSE.toString() else ITALIC_OPEN.toString()
+        }
+        text = h1TagPattern.replace(text) { match ->
+            if (match.value.startsWith("</")) "$H1_CLOSE\n\n" else "\n\n$H1_OPEN"
+        }
+        text = h2TagPattern.replace(text) { match ->
+            if (match.value.startsWith("</")) "$H2_CLOSE\n\n" else "\n\n$H2_OPEN"
+        }
+        text = h3TagPattern.replace(text) { match ->
+            if (match.value.startsWith("</")) "$H3_CLOSE\n\n" else "\n\n$H3_OPEN"
+        }
+        text = h4TagPattern.replace(text) { match ->
+            if (match.value.startsWith("</")) "$H3_CLOSE\n\n" else "\n\n$H3_OPEN"
+        }
+        text = blockquoteTagPattern.replace(text) { match ->
+            if (match.value.startsWith("</")) INDENT_CLOSE.toString() else INDENT_OPEN.toString()
         }
         return text
     }
