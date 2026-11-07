@@ -58,8 +58,9 @@ SQLite（`SQLiteOpenHelper`）：
 ## M2a 状态
 
 - `ReadingStateStore` 使用 `SharedPreferences` 保存最后 URI、标题、字符偏移和编码；不复制书籍
+- `ReaderSettingsStore` 保存主题、字号、行距、边距和亮度
 - 多本最近阅读/书名列表后续替换为 SQLite；当前只保留最后一本
-- 手动编码覆盖在 M2b 接入同一状态存储
+- 手动编码覆盖保存在当前书的阅读状态中
 
 ## 退出标准
 

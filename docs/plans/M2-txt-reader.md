@@ -9,10 +9,17 @@
 | 子阶段 | 内容 | 状态 |
 |---|---|---|
 | M2a | 章节索引/目录、字符进度、继续阅读 | ✅ 构建/单测通过；等待真机 |
-| M2b | 字号/行距/边距、亮度、手动编码 | ⏳ 待开始 |
+| M2b | 字号/行距/边距、亮度、手动编码 | 🚧 已修复滑杆/亮度/漂移，待复验 |
 | M2c | 回归、真机验收、合并 | ⏳ 待开始 |
 
 M2a 产物：`artifacts/m2a/inkreader-0.2.0-m2a-debug.apk`
+M2b 产物：`artifacts/m2b/inkreader-0.2.1-m2b-debug.apk`
+M2b2 修复：`artifacts/m2b2/inkreader-0.2.2-m2b2-debug.apk`
+M2b3 修复：`artifacts/m2b3/inkreader-0.2.3-m2b3-debug.apk`
+M2b4 修复：`artifacts/m2b4/inkreader-0.2.4-m2b4-debug.apk`
+M2b7 修复：`artifacts/m2b7/inkreader-0.2.7-m2b7-debug.apk`
+M2b9 修复：`artifacts/m2b9/inkreader-0.2.9-m2b9-debug.apk`
+M2b10 延展：`artifacts/m2b10/inkreader-0.2.10-m2b10-debug.apk`
 
 ## 范围
 
