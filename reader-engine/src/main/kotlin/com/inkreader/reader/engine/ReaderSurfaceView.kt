@@ -49,7 +49,7 @@ class ReaderSurfaceView(context: Context) : View(context) {
 
     /** Per-page ascent/descent safety insets. */
     private val pageTopInset get() = maxOf(dp(16), ceil(-textPaint.fontMetrics.top).toInt())
-    private val pageBottomInset get() = maxOf(dp(24), ceil(textPaint.fontMetrics.bottom).toInt())
+    private val pageBottomInset get() = maxOf(dp(20), ceil(textPaint.fontMetrics.bottom).toInt())
     private val paginationHeight get() = (contentHeight - pageTopInset - pageBottomInset).coerceAtLeast(1)
 
     private val gestureDetector = GestureDetector(
@@ -84,7 +84,7 @@ class ReaderSurfaceView(context: Context) : View(context) {
 
     init {
         // Reserve top control/status area and bottom safe area.
-        setPadding(dp(style.horizontalPaddingDp), dp(80), dp(style.horizontalPaddingDp), dp(56))
+        setPadding(dp(style.horizontalPaddingDp), dp(76), dp(style.horizontalPaddingDp), dp(52))
         textPaint.textSize = sp(style.fontSizeSp)
         setBackgroundColor(theme.background)
         renderedPageKey = -1
@@ -97,7 +97,7 @@ class ReaderSurfaceView(context: Context) : View(context) {
         val restoreOffset = currentCharOffset()
         style = newStyle
         textPaint.textSize = sp(style.fontSizeSp)
-        setPadding(dp(style.horizontalPaddingDp), dp(80), dp(style.horizontalPaddingDp), dp(56))
+        setPadding(dp(style.horizontalPaddingDp), dp(76), dp(style.horizontalPaddingDp), dp(52))
         renderedPageKey = -1
         if (ready) {
             rebuildLayout(restoreOffset)
