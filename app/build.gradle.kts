@@ -14,8 +14,8 @@ android {
         applicationId = "com.inkreader.app"
         minSdk = 26
         targetSdk = 36
-        versionCode = 15
-        versionName = "0.2.10"
+        versionCode = 16
+        versionName = "0.3.0"
     }
 
     buildFeatures {
@@ -58,6 +58,7 @@ dependencies {
     implementation(project(":kernel:core"))
     implementation(project(":reader-engine"))
     implementation(project(":formats:txt"))
+    implementation(project(":formats:epub"))
     implementation(project(":plugin-host-quickjs"))
 
     implementation(platform("androidx.compose:compose-bom:2025.10.01"))

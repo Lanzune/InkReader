@@ -4,6 +4,7 @@ import android.app.Activity
 import android.content.Context
 import android.content.ContextWrapper
 import android.content.Intent
+import android.content.pm.ApplicationInfo
 import android.net.Uri
 import android.os.Bundle
 import androidx.activity.ComponentActivity
@@ -57,6 +58,7 @@ import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
+import com.inkreader.formats.epub.EpubFormatProvider
 import com.inkreader.formats.txt.TxtFormatProvider
 import com.inkreader.kernel.api.BookDocument
 import com.inkreader.kernel.api.BuiltInThemes
@@ -94,6 +96,7 @@ private sealed interface Screen {
         val uri: Uri,
         val encoding: String?,
         val initialOffset: Int,
+        val persistProgress: Boolean = true,
     ) : Screen
 }
 
@@ -141,7 +144,7 @@ private fun InkReaderApp() {
                 withContext(Dispatchers.IO) {
                     val source = ContentBookSource(context, uri)
                     try {
-                        BookOpener(listOf(TxtFormatProvider())).open(source, encoding)
+                        BookOpener(listOf(TxtFormatProvider(), EpubFormatProvider())).open(source, encoding)
                     } finally {
                         source.close()
                     }
@@ -170,13 +173,48 @@ private fun InkReaderApp() {
         if (uri != null) openUri(uri)
     }
 
+    val debuggable = remember(context) {
+        context.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE != 0
+    }
+
+    fun openSampleEpub() {
+        screen = Screen.Loading
+        error = null
+        scope.launch {
+            val result = runCatching {
+                withContext(Dispatchers.IO) {
+                    val source = AssetBookSource(context.assets, "sample.epub", "示例 EPUB")
+                    try {
+                        BookOpener(listOf(TxtFormatProvider(), EpubFormatProvider())).open(source)
+                    } finally {
+                        source.close()
+                    }
+                }
+            }
+            result.onSuccess { book ->
+                screen = Screen.Reading(
+                    book = book,
+                    uri = Uri.parse("asset:///sample.epub"),
+                    encoding = null,
+                    initialOffset = 0,
+                    persistProgress = false,
+                )
+            }.onFailure { failure ->
+                error = failure.message ?: "示例 EPUB 打开失败"
+                screen = Screen.Home
+            }
+        }
+    }
+
     when (val current = screen) {
         Screen.Home -> HomeScreen(
             saved = saved,
             error = error,
             pluginSnapshot = pluginSnapshot,
             pluginError = pluginError,
+            showSample = debuggable,
             onOpen = { openDocument.launch(arrayOf("*/*")) },
+            onOpenSample = { openSampleEpub() },
             onContinue = {
                 saved?.let { record ->
                     openUri(Uri.parse(record.uri), record.encoding, record.charOffset)
@@ -200,14 +238,16 @@ private fun InkReaderApp() {
                 openUri(current.uri, encoding, offset)
             },
             onProgress = { offset ->
-                val record = SavedReading(
-                    uri = current.uri.toString(),
-                    title = current.book.metadata.title,
-                    charOffset = offset,
-                    encoding = current.encoding,
-                )
-                readingState.save(record.uri, record.title, record.charOffset, record.encoding)
-                saved = record
+                if (current.persistProgress) {
+                    val record = SavedReading(
+                        uri = current.uri.toString(),
+                        title = current.book.metadata.title,
+                        charOffset = offset,
+                        encoding = current.encoding,
+                    )
+                    readingState.save(record.uri, record.title, record.charOffset, record.encoding)
+                    saved = record
+                }
             },
             onBack = { screen = Screen.Home },
         )
@@ -220,7 +260,9 @@ private fun HomeScreen(
     error: String?,
     pluginSnapshot: PluginSnapshot?,
     pluginError: String?,
+    showSample: Boolean,
     onOpen: () -> Unit,
+    onOpenSample: () -> Unit,
     onContinue: () -> Unit,
 ) {
     Surface(modifier = Modifier.fillMaxSize()) {
@@ -232,7 +274,7 @@ private fun HomeScreen(
             horizontalAlignment = Alignment.Start,
         ) {
             Text(text = "InkReader", style = MaterialTheme.typography.headlineLarge)
-            Text(text = "M2 · TXT 阅读与进度", style = MaterialTheme.typography.titleMedium)
+            Text(text = "M3 · TXT / EPUB", style = MaterialTheme.typography.titleMedium)
             Text(
                 text = KernelEngine().versionLabel(),
                 style = MaterialTheme.typography.bodySmall,
@@ -243,7 +285,12 @@ private fun HomeScreen(
                 }
             }
             OutlinedButton(onClick = onOpen) {
-                Text(if (saved == null) "打开本地 TXT" else "打开另一本 TXT")
+                Text(if (saved == null) "打开本地书籍" else "打开另一本")
+            }
+            if (showSample) {
+                TextButton(onClick = onOpenSample) {
+                    Text("打开内置示例 EPUB（调试）")
+                }
             }
             when {
                 pluginSnapshot != null -> {
@@ -282,7 +329,7 @@ private fun HomeScreen(
                 )
             }
             Text(
-                text = "已支持 UTF-8/GB18030/Big5/UTF-16 自动识别；最近阅读和字符位置会保存。",
+                text = "支持 TXT/EPUB；最近阅读和字符位置会保存。",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -471,6 +518,7 @@ private fun ReaderScreen(
         ReaderSettingsDialog(
             settings = settings,
             encoding = encoding,
+            showEncoding = book.formatId == "txt",
             onDismiss = { settingsVisible = false },
             onSettingsChange = onSettingsChange,
             onEncodingChange = { newEncoding ->
@@ -485,6 +533,7 @@ private fun ReaderScreen(
 private fun ReaderSettingsDialog(
     settings: ReaderSettings,
     encoding: String?,
+    showEncoding: Boolean,
     onDismiss: () -> Unit,
     onSettingsChange: (ReaderSettings) -> Unit,
     onEncodingChange: (String?) -> Unit,
@@ -576,25 +625,27 @@ private fun ReaderSettingsDialog(
                     Text("亮度跟随系统")
                 }
 
-                Text("编码：${encoding ?: "自动"}", style = MaterialTheme.typography.labelLarge)
-                Box {
-                    TextButton(onClick = { encodingMenuExpanded = true }) {
-                        Text("切换编码")
-                    }
-                    DropdownMenu(
-                        expanded = encodingMenuExpanded,
-                        onDismissRequest = { encodingMenuExpanded = false },
-                    ) {
-                        listOf<String?>(null, "UTF-8", "GB18030", "Big5", "UTF-16LE", "UTF-16BE")
-                            .forEach { option ->
-                                DropdownMenuItem(
-                                    text = { Text(option ?: "自动") },
-                                    onClick = {
-                                        encodingMenuExpanded = false
-                                        onEncodingChange(option)
-                                    },
-                                )
-                            }
+                if (showEncoding) {
+                    Text("编码：${encoding ?: "自动"}", style = MaterialTheme.typography.labelLarge)
+                    Box {
+                        TextButton(onClick = { encodingMenuExpanded = true }) {
+                            Text("切换编码")
+                        }
+                        DropdownMenu(
+                            expanded = encodingMenuExpanded,
+                            onDismissRequest = { encodingMenuExpanded = false },
+                        ) {
+                            listOf<String?>(null, "UTF-8", "GB18030", "Big5", "UTF-16LE", "UTF-16BE")
+                                .forEach { option ->
+                                    DropdownMenuItem(
+                                        text = { Text(option ?: "自动") },
+                                        onClick = {
+                                            encodingMenuExpanded = false
+                                            onEncodingChange(option)
+                                        },
+                                    )
+                                }
+                        }
                     }
                 }
             }
