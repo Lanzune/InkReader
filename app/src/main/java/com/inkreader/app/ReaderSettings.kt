@@ -15,6 +15,7 @@ data class ReaderSettings(
     val lineSpacing: Float = 1.5f,
     val horizontalPaddingDp: Int = 24,
     val brightness: Float? = null,
+    val pageTurnAnimation: Boolean = true,
 ) {
     fun toStyle(): ReaderStyle = ReaderStyle(
         fontSizeSp = fontSizeSp,
@@ -42,6 +43,7 @@ class ReaderSettingsStore(context: Context) {
             lineSpacing = prefs.getFloat(KEY_LINE_SPACING, 1.5f).coerceIn(1.2f, 2.0f),
             horizontalPaddingDp = prefs.getInt(KEY_PADDING, 24).coerceIn(8, 40),
             brightness = brightness,
+            pageTurnAnimation = prefs.getBoolean(KEY_PAGE_ANIMATION, true),
         )
     }
 
@@ -51,6 +53,7 @@ class ReaderSettingsStore(context: Context) {
             .putFloat(KEY_FONT_SIZE, settings.fontSizeSp)
             .putFloat(KEY_LINE_SPACING, settings.lineSpacing)
             .putInt(KEY_PADDING, settings.horizontalPaddingDp)
+            .putBoolean(KEY_PAGE_ANIMATION, settings.pageTurnAnimation)
             .apply {
                 if (settings.brightness == null) {
                     remove(KEY_BRIGHTNESS)
@@ -67,5 +70,6 @@ class ReaderSettingsStore(context: Context) {
         const val KEY_LINE_SPACING = "line_spacing"
         const val KEY_PADDING = "padding"
         const val KEY_BRIGHTNESS = "brightness"
+        const val KEY_PAGE_ANIMATION = "page_animation"
     }
 }
