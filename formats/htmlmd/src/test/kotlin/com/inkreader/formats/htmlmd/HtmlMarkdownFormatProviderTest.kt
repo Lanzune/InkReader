@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// Copyright (C) 2026 InkReader contributors
+
 package com.inkreader.formats.htmlmd
 
 import com.inkreader.kernel.api.BookSource

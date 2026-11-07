@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// Copyright (C) 2026 InkReader contributors
+
 package com.inkreader.app
 
 import android.app.Activity
@@ -572,6 +575,7 @@ private fun HomeScreen(
     onImportBackup: () -> Unit,
     onContinue: () -> Unit,
 ) {
+    var aboutVisible by remember { mutableStateOf(false) }
     Surface(modifier = Modifier.fillMaxSize()) {
         Column(
             modifier = Modifier
@@ -631,6 +635,9 @@ private fun HomeScreen(
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
+            }
+            TextButton(onClick = { aboutVisible = true }) {
+                Text("关于 / 许可证")
             }
             if (pluginError != null) {
                 Text(
@@ -699,6 +706,29 @@ private fun HomeScreen(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
+    }
+
+    if (aboutVisible) {
+        AlertDialog(
+            onDismissRequest = { aboutVisible = false },
+            title = { Text("关于 InkReader") },
+            text = {
+                Text(
+                    text = """
+                        InkReader 0.7.2
+                        Copyright (C) 2026 InkReader contributors
+
+                        本程序按 GNU Affero General Public License v3.0 only 发布，不提供任何担保。
+                        许可证全文：应用内 assets/LICENSE.txt，或
+                        https://www.gnu.org/licenses/agpl-3.0.txt
+                        源码：https://github.com/Lanzune/InkReader
+                    """.trimIndent(),
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = { aboutVisible = false }) { Text("关闭") }
+            },
+        )
     }
 }
 

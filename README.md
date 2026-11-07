@@ -14,22 +14,22 @@
 
 ## 当前状态
 
-**阶段：M7c 正式包 0.7.1 已安装，数据迁移完成。**
+**阶段：M7 完成，正式包 0.7.2 已安装。**
 
 - M0～M2：TXT 阅读器完成，标签 `m2-txt-reader`
 - M3：EPUB 完成，标签 `m3-epub`
 - M4：PDF/HTML/Markdown 完成，标签 `m4-docs`
 - M5：翻页动画、命令面板，标签 `m5-experience`
 - M6：manifest、`.inkp` 安装、启停/卸载，标签 `m6-plugins`
-- M7：R8 release、正式签名、4.32 MiB、16 KB、数据导出/恢复
-- 正式包 `0.7.1`，versionCode 34，RSA 4096
+- M7：R8 release、正式签名、数据导出/恢复、AGPL-3.0-only
+- 正式包 `0.7.2`，versionCode 35，RSA 4096
 - Android 16（API 36）
 - 无 `INTERNET`
 
 插件开发：`docs/plugin-dev.md`；示例：`examples/paper-theme/`。
 发布签名：`docs/runbooks/release-signing.md`。
 
-下一步：LICENSE 选择 → 后续体验/性能优化。
+下一步：体验/性能优化。
 
 ## 目录结构
 
@@ -73,11 +73,22 @@ inkreader/
 5. 命令行优先；真机交互验证由项目所有者执行并反馈结果。
 6. 每个阶段结束提交、打标签、更新文档和状态。
 
+## 许可证
+
+InkReader 使用 **AGPL-3.0-only**：
+
+- 完整文本：[LICENSE](LICENSE)
+- 说明：[LICENSE.md](LICENSE.md)
+- 第三方组件：[NOTICE](NOTICE)
+- 贡献规则：[CONTRIBUTING.md](CONTRIBUTING.md)
+- 商标：[TRADEMARK.md](TRADEMARK.md)
+
+分发修改版必须提供完整对应源码；修改版作为网络服务提供时必须向用户提供源码。私用且不分发不强制公开。
+
 ## 尚未确定
 
 - 正式产品名称
 - 包名 / GitHub 仓库地址
-- 签名密钥与发布方式
 - 是否上架 Google Play
 - v1 是否包含 HTML/Markdown，或顺延到 v1.1
 

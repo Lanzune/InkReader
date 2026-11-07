@@ -1,12 +1,13 @@
 # InkReader 文档索引
 
-> 当前阶段：**M7c 正式包 0.7.1 已安装，数据迁移完成**
+> 当前阶段：**M7 完成，正式包 0.7.2，AGPL-3.0-only**
 >
 > 内部代号：`InkReader`。正式名称、包名和 GitHub 仓库地址待定，不影响当前开发。
 >
 > 插件开发：[plugin-dev](plugin-dev.md)；示例：[examples/paper-theme](../examples/paper-theme/)。
 > 发布签名：[release-signing](runbooks/release-signing.md)。
-> 0.7.1 发布说明：[0.7.1](releases/0.7.1.md)。
+> 0.7.2 发布说明：[0.7.2](releases/0.7.2.md)。
+> 许可证：[LICENSE](../LICENSE) · [说明](../LICENSE.md) · [NOTICE](../NOTICE)。
 
 ## 先读什么
 
