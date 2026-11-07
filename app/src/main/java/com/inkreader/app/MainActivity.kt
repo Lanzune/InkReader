@@ -139,6 +139,7 @@ private fun InkReaderApp() {
     var pluginError: String? by remember { mutableStateOf(null) }
     var pluginEnabled by remember { mutableStateOf(pluginPrefs.getBoolean("enabled", true)) }
     var backupMessage by remember { mutableStateOf<String?>(null) }
+    val bookCache = remember { java.util.concurrent.atomic.AtomicReference<Pair<String, BookDocument>?>(null) }
     val pluginDir = remember(context) { File(context.filesDir, "plugins") }
     var installedPlugin by remember { mutableStateOf(PluginInstaller.findInstalled(pluginDir)) }
 
@@ -313,14 +314,23 @@ private fun InkReaderApp() {
                         ContentBookSource(context, uri)
                     }
                     try {
-                        BookOpener(
-                            listOf(
-                                TxtFormatProvider(),
-                                EpubFormatProvider(),
-                                PdfFormatProvider(),
-                                HtmlMarkdownFormatProvider(),
-                            ),
-                        ).open(source, encoding)
+                        val key = "${uri}#${source.size}#${encoding.orEmpty()}"
+                        val cached = bookCache.get()
+                        val book = if (cached?.first == key) {
+                            cached.second
+                        } else {
+                            BookOpener(
+                                listOf(
+                                    TxtFormatProvider(),
+                                    EpubFormatProvider(),
+                                    PdfFormatProvider(),
+                                    HtmlMarkdownFormatProvider(),
+                                ),
+                            ).open(source, encoding).also {
+                                bookCache.set(key to it)
+                            }
+                        }
+                        book
                     } finally {
                         source.close()
                     }
@@ -765,8 +775,14 @@ private fun ReaderScreen(
 ) {
     val chapter = book.chapters.first()
     val context = LocalContext.current
-    val readerText = remember(chapter, book.resources) {
-        buildReaderText(context, chapter, book.resources)
+    var readerText by remember(chapter) { mutableStateOf<CharSequence>(chapter.text) }
+    var appliedText by remember(chapter) { mutableStateOf<CharSequence?>(null) }
+    LaunchedEffect(chapter, book.resources) {
+        if (chapter.images.isEmpty() && chapter.styles.isEmpty() && chapter.links.isEmpty()) return@LaunchedEffect
+        val rich = withContext(Dispatchers.Default) {
+            buildReaderText(context, chapter, book.resources)
+        }
+        readerText = rich
     }
     var pageInfo by remember { mutableStateOf(PageInfo(0, 1)) }
     var controlsVisible by remember { mutableStateOf(true) }
@@ -855,6 +871,7 @@ private fun ReaderScreen(
                         goToCharOffset(target)
                     }
                     setContent(readerText, theme, initialCharOffset)
+                    appliedText = readerText
                     readerView = this
                 }
             },
@@ -862,6 +879,10 @@ private fun ReaderScreen(
                 surface.pageTurnAnimationEnabled = settings.pageTurnAnimation
                 surface.setTheme(theme)
                 surface.applyStyle(style)
+                if (appliedText !== readerText) {
+                    surface.setContent(readerText, theme, surface.currentCharOffset())
+                    appliedText = readerText
+                }
             },
             modifier = Modifier.fillMaxSize(),
         )
@@ -889,7 +910,11 @@ private fun ReaderScreen(
                     style = MaterialTheme.typography.titleSmall,
                 )
                 Text(
-                    text = "${pageInfo.page + 1}/${pageInfo.pageCount}",
+                    text = if (pageInfo.pageCount > 0) {
+                        "${pageInfo.page + 1}/${pageInfo.pageCount}"
+                    } else {
+                        "${pageInfo.page + 1}/…"
+                    },
                     color = Color(theme.foreground),
                     style = MaterialTheme.typography.labelMedium,
                 )
@@ -948,7 +973,7 @@ private fun ReaderScreen(
             pageCount = pageInfo.pageCount,
             hasToc = book.toc.isNotEmpty(),
             canPrevious = pageInfo.page > 0,
-            canNext = pageInfo.page + 1 < pageInfo.pageCount,
+            canNext = pageInfo.pageCount == 0 || pageInfo.page + 1 < pageInfo.pageCount,
             pluginCommand = pluginCommand,
             onDismiss = { commandPaletteVisible = false },
             onToc = {
@@ -1006,7 +1031,7 @@ private fun ReaderCommandPalette(
                 verticalArrangement = Arrangement.spacedBy(2.dp),
             ) {
                 Text(
-                    text = "第 $page / $pageCount 页",
+                    text = if (pageCount > 0) "第 $page / $pageCount 页" else "第 $page 页 · 分页计算中",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )

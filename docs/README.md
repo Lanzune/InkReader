@@ -1,12 +1,11 @@
 # InkReader 文档索引
 
-> 当前阶段：**M7 完成，正式包 0.7.2，AGPL-3.0-only**
+> 当前阶段：**M8a 首屏优化（0.8.0），大书首屏约 2.2 s，未达 1 s**
 >
 > 内部代号：`InkReader`。正式名称、包名和 GitHub 仓库地址待定，不影响当前开发。
 >
+> 性能：[phase 1](quality/2026-11-08-perf-phase1.md) · 测试：[bench-open](../scripts/bench-open.ps1)。
 > 插件开发：[plugin-dev](plugin-dev.md)；示例：[examples/paper-theme](../examples/paper-theme/)。
-> 发布签名：[release-signing](runbooks/release-signing.md)。
-> 0.7.2 发布说明：[0.7.2](releases/0.7.2.md)。
 > 许可证：[LICENSE](../LICENSE) · [说明](../LICENSE.md) · [NOTICE](../NOTICE)。
 
 ## 先读什么

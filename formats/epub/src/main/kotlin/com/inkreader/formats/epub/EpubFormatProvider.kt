@@ -192,11 +192,21 @@ class EpubFormatProvider : FormatProvider {
         var hasContent = false
         var chapterNumber = 0
 
-        for (item in packageInfo.spine) {
-            val html = archive.text(item.path) ?: continue
-            val rich = XhtmlText.extractRich(html)
+        val parsedChapters = packageInfo.spine.parallelStream()
+            .map { item ->
+                val html = archive.text(item.path) ?: return@map null
+                val rich = XhtmlText.extractRich(html)
+                if (rich.text.isBlank()) null else ParsedChapter(item, html, rich)
+            }
+            .filter { it != null }
+            .collect(java.util.stream.Collectors.toList())
+            .filterNotNull()
+
+        for (parsed in parsedChapters) {
+            val item = parsed.item
+            val html = parsed.html
+            val rich = parsed.rich
             val chapterText = rich.text
-            if (chapterText.isBlank()) continue
 
             if (hasContent) text.append("\n\n")
             val offset = text.length
@@ -331,5 +341,11 @@ class EpubFormatProvider : FormatProvider {
         val target: String,
         val chapterPath: String,
         val baseDir: String,
+    )
+
+    private data class ParsedChapter(
+        val item: ManifestItem,
+        val html: String,
+        val rich: XhtmlText.RichText,
     )
 }
