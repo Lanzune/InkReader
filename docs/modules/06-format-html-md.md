@@ -1,8 +1,8 @@
 # 模块 06：HTML 与 Markdown
 
-**代码：** `formats/html-md`  
-**阶段：** M4  
-**状态：** 未开始
+**代码：** `formats/htmlmd`
+**阶段：** M4c
+**状态：** HTML/Markdown 文本、标题目录、强调、内部链接已真机验证
 
 ## 目的
 

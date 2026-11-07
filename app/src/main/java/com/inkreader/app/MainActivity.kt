@@ -68,6 +68,8 @@ import androidx.core.view.WindowInsetsControllerCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
 import com.inkreader.formats.epub.EpubFormatProvider
+import com.inkreader.formats.htmlmd.HtmlMarkdownFormatProvider
+import com.inkreader.formats.pdf.PdfFormatProvider
 import com.inkreader.formats.txt.TxtFormatProvider
 import com.inkreader.kernel.api.BookDocument
 import com.inkreader.kernel.api.BuiltInThemes
@@ -156,7 +158,14 @@ private fun InkReaderApp() {
                 withContext(Dispatchers.IO) {
                     val source = ContentBookSource(context, uri)
                     try {
-                        BookOpener(listOf(TxtFormatProvider(), EpubFormatProvider())).open(source, encoding)
+                        BookOpener(
+                            listOf(
+                                TxtFormatProvider(),
+                                EpubFormatProvider(),
+                                PdfFormatProvider(),
+                                HtmlMarkdownFormatProvider(),
+                            ),
+                        ).open(source, encoding)
                     } finally {
                         source.close()
                     }
@@ -197,7 +206,7 @@ private fun InkReaderApp() {
                 withContext(Dispatchers.IO) {
                     val source = AssetBookSource(context.assets, "sample.epub", "示例 EPUB")
                     try {
-                        BookOpener(listOf(TxtFormatProvider(), EpubFormatProvider())).open(source)
+                        BookOpener(listOf(TxtFormatProvider(), EpubFormatProvider(), PdfFormatProvider())).open(source)
                     } finally {
                         source.close()
                     }
@@ -219,6 +228,74 @@ private fun InkReaderApp() {
         }
     }
 
+    fun openSamplePdf() {
+        screen = Screen.Loading
+        error = null
+        scope.launch {
+            val result = runCatching {
+                withContext(Dispatchers.IO) {
+                    val source = AssetBookSource(
+                        context.assets,
+                        "sample.pdf",
+                        "示例 PDF",
+                        "application/pdf",
+                    )
+                    try {
+                        BookOpener(listOf(PdfFormatProvider())).open(source)
+                    } finally {
+                        source.close()
+                    }
+                }
+            }
+            result.onSuccess { book ->
+                screen = Screen.Reading(
+                    book = book,
+                    uri = Uri.parse("asset:///sample.pdf"),
+                    encoding = null,
+                    initialOffset = 0,
+                    persistProgress = false,
+                )
+            }.onFailure { failure ->
+                error = "示例 PDF 打开失败：${failure.message ?: failure.javaClass.simpleName}"
+                screen = Screen.Home
+            }
+        }
+    }
+
+    fun openSampleMarkdown() {
+        screen = Screen.Loading
+        error = null
+        scope.launch {
+            val result = runCatching {
+                withContext(Dispatchers.IO) {
+                    val source = AssetBookSource(
+                        context.assets,
+                        "sample.md",
+                        "示例 Markdown",
+                        "text/markdown",
+                    )
+                    try {
+                        BookOpener(listOf(HtmlMarkdownFormatProvider())).open(source)
+                    } finally {
+                        source.close()
+                    }
+                }
+            }
+            result.onSuccess { book ->
+                screen = Screen.Reading(
+                    book = book,
+                    uri = Uri.parse("asset:///sample.md"),
+                    encoding = null,
+                    initialOffset = 0,
+                    persistProgress = false,
+                )
+            }.onFailure { failure ->
+                error = "示例 Markdown 打开失败：${failure.message ?: failure.javaClass.simpleName}"
+                screen = Screen.Home
+            }
+        }
+    }
+
     when (val current = screen) {
         Screen.Home -> HomeScreen(
             saved = saved,
@@ -228,6 +305,8 @@ private fun InkReaderApp() {
             showSample = debuggable,
             onOpen = { openDocument.launch(arrayOf("*/*")) },
             onOpenSample = { openSampleEpub() },
+            onOpenPdfSample = { openSamplePdf() },
+            onOpenMarkdownSample = { openSampleMarkdown() },
             onContinue = {
                 saved?.let { record ->
                     openUri(Uri.parse(record.uri), record.encoding, record.charOffset)
@@ -237,33 +316,66 @@ private fun InkReaderApp() {
 
         Screen.Loading -> LoadingScreen()
 
-        is Screen.Reading -> ReaderScreen(
-            book = current.book,
-            encoding = current.encoding,
-            pluginTheme = pluginSnapshot?.theme,
-            settings = settings,
-            initialCharOffset = current.initialOffset,
-            onSettingsChange = { updated ->
-                settings = updated
-                settingsStore.save(updated)
-            },
-            onEncodingChange = { encoding, offset ->
-                openUri(current.uri, encoding, offset)
-            },
-            onProgress = { offset ->
-                if (current.persistProgress) {
-                    val record = SavedReading(
-                        uri = current.uri.toString(),
-                        title = current.book.metadata.title,
-                        charOffset = offset,
-                        encoding = current.encoding,
-                    )
-                    readingState.save(record.uri, record.title, record.charOffset, record.encoding)
-                    saved = record
-                }
-            },
-            onBack = { screen = Screen.Home },
-        )
+        is Screen.Reading -> {
+            if (current.book.formatId == "pdf") {
+                PdfReaderScreen(
+                    book = current.book,
+                    uri = current.uri,
+                    initialPage = current.initialOffset,
+                    onProgress = { page ->
+                        if (current.persistProgress) {
+                            val record = SavedReading(
+                                uri = current.uri.toString(),
+                                title = current.book.metadata.title,
+                                charOffset = page,
+                                encoding = null,
+                            )
+                            readingState.save(
+                                record.uri,
+                                record.title,
+                                record.charOffset,
+                                record.encoding,
+                            )
+                            saved = record
+                        }
+                    },
+                    onBack = { screen = Screen.Home },
+                )
+            } else {
+                ReaderScreen(
+                    book = current.book,
+                    encoding = current.encoding,
+                    pluginTheme = pluginSnapshot?.theme,
+                    settings = settings,
+                    initialCharOffset = current.initialOffset,
+                    onSettingsChange = { updated ->
+                        settings = updated
+                        settingsStore.save(updated)
+                    },
+                    onEncodingChange = { encoding, offset ->
+                        openUri(current.uri, encoding, offset)
+                    },
+                    onProgress = { offset ->
+                        if (current.persistProgress) {
+                            val record = SavedReading(
+                                uri = current.uri.toString(),
+                                title = current.book.metadata.title,
+                                charOffset = offset,
+                                encoding = current.encoding,
+                            )
+                            readingState.save(
+                                record.uri,
+                                record.title,
+                                record.charOffset,
+                                record.encoding,
+                            )
+                            saved = record
+                        }
+                    },
+                    onBack = { screen = Screen.Home },
+                )
+            }
+        }
     }
 }
 
@@ -276,6 +388,8 @@ private fun HomeScreen(
     showSample: Boolean,
     onOpen: () -> Unit,
     onOpenSample: () -> Unit,
+    onOpenPdfSample: () -> Unit,
+    onOpenMarkdownSample: () -> Unit,
     onContinue: () -> Unit,
 ) {
     Surface(modifier = Modifier.fillMaxSize()) {
@@ -287,7 +401,7 @@ private fun HomeScreen(
             horizontalAlignment = Alignment.Start,
         ) {
             Text(text = "InkReader", style = MaterialTheme.typography.headlineLarge)
-            Text(text = "M3 · TXT / EPUB", style = MaterialTheme.typography.titleMedium)
+            Text(text = "M4 · TXT / EPUB / PDF / HTML / MD", style = MaterialTheme.typography.titleMedium)
             Text(
                 text = KernelEngine().versionLabel(),
                 style = MaterialTheme.typography.bodySmall,
@@ -303,6 +417,12 @@ private fun HomeScreen(
             if (showSample) {
                 TextButton(onClick = onOpenSample) {
                     Text("打开内置示例 EPUB（调试）")
+                }
+                TextButton(onClick = onOpenPdfSample) {
+                    Text("打开内置示例 PDF（调试）")
+                }
+                TextButton(onClick = onOpenMarkdownSample) {
+                    Text("打开内置示例 Markdown（调试）")
                 }
             }
             when {
@@ -342,7 +462,7 @@ private fun HomeScreen(
                 )
             }
             Text(
-                text = "支持 TXT/EPUB；最近阅读和字符位置会保存。",
+                text = "支持 TXT/EPUB/PDF/HTML/Markdown；最近阅读和位置会保存。",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
