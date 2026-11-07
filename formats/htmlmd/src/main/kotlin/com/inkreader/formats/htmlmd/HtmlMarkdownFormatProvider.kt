@@ -77,7 +77,17 @@ private object MarkdownText {
     private val headingPattern = Regex("""^(#{1,6})\s+(.+?)\s*#*\s*$""")
     private val linkPattern = Regex("""!?\[([^\]]*)]\([^)]*\)""")
     private val inlineCodePattern = Regex("`([^`]*)`")
-    private val emphasisPattern = Regex("""(\*\*|__|\*|_|~~)(.+?)\1""")
+    private val boldPattern = Regex("""(\*\*|__)(.+?)\1""")
+    private val italicPattern = Regex("""(\*|_)(.+?)\1""")
+    private const val BOLD_OPEN = '\uE100'
+    private const val BOLD_CLOSE = '\uE101'
+    private const val ITALIC_OPEN = '\uE102'
+    private const val ITALIC_CLOSE = '\uE103'
+
+    private data class InlineText(
+        val text: String,
+        val styles: List<ChapterStyle> = emptyList(),
+    )
 
     fun render(source: String): RenderedText {
         val builder = StringBuilder()
@@ -99,10 +109,10 @@ private object MarkdownText {
             val heading = headingPattern.matchEntire(line)
             if (heading != null) {
                 val level = heading.groupValues[1].length.coerceAtMost(3)
-                val title = cleanInline(heading.groupValues[2])
+                val inline = parseInline(heading.groupValues[2])
                 if (builder.isNotEmpty()) builder.append("\n\n")
                 val start = builder.length
-                builder.append(title)
+                builder.append(inline.text)
                 val end = builder.length
                 styles.add(
                     ChapterStyle(
@@ -115,7 +125,15 @@ private object MarkdownText {
                         },
                     ),
                 )
-                if (level <= 3) toc.add(TocEntry(title, start))
+                inline.styles.forEach { style ->
+                    styles.add(
+                        style.copy(
+                            start = start + style.start,
+                            endExclusive = start + style.endExclusive,
+                        ),
+                    )
+                }
+                if (level <= 3) toc.add(TocEntry(inline.text, start))
                 builder.append("\n\n")
                 return@forEach
             }
@@ -127,29 +145,99 @@ private object MarkdownText {
             text = text.replace(Regex("""^\s*>\s?"""), "")
             text = text.replace(Regex("""^\s*[-*+]\s+"""), "• ")
             text = text.replace(Regex("""^\s*\d+[.)]\s+"""), "")
-            text = cleanInline(text)
-            if (text.isNotBlank()) appendParagraph(builder, text)
+            val inline = parseInline(text)
+            if (inline.text.isNotBlank()) {
+                val start = appendParagraph(builder, inline.text)
+                inline.styles.forEach { style ->
+                    styles.add(
+                        style.copy(
+                            start = start + style.start,
+                            endExclusive = start + style.endExclusive,
+                        ),
+                    )
+                }
+            }
         }
 
         val text = builder.toString().replace(Regex("\\n{3,}"), "\n\n").trim()
         return RenderedText(text, toc, styles)
     }
 
-    private fun appendParagraph(builder: StringBuilder, text: String) {
-        if (builder.isEmpty()) {
-            builder.append(text)
+    private fun appendParagraph(builder: StringBuilder, text: String): Int {
+        val start = if (builder.isEmpty()) {
+            0
         } else {
             if (!builder.endsWith("\n\n")) builder.append("\n\n")
-            builder.append(text)
+            builder.length
         }
+        builder.append(text)
+        return start
     }
 
-    private fun cleanInline(value: String): String {
-        var text = value
-        text = imageOrLink(text)
+    private fun parseInline(value: String): InlineText {
+        var text = imageOrLink(value)
         text = inlineCodePattern.replace(text, "$1")
-        text = emphasisPattern.replace(text, "$2")
-        return decodeEntities(text).replace(Regex("[\\t ]+"), " ").trim()
+
+        text = boldPattern.replace(text) { match ->
+            "$BOLD_OPEN${match.groupValues[2]}$BOLD_CLOSE"
+        }
+        text = italicPattern.replace(text) { match ->
+            "$ITALIC_OPEN${match.groupValues[2]}$ITALIC_CLOSE"
+        }
+
+        val clean = StringBuilder(text.length)
+        val styles = mutableListOf<ChapterStyle>()
+        var boldDepth = 0
+        var boldStart = -1
+        var italicDepth = 0
+        var italicStart = -1
+        for (character in text) {
+            when (character) {
+                BOLD_OPEN -> {
+                    if (boldDepth == 0) boldStart = clean.length
+                    boldDepth += 1
+                }
+                BOLD_CLOSE -> {
+                    if (boldDepth > 0) {
+                        boldDepth -= 1
+                        if (boldDepth == 0 && boldStart >= 0) {
+                            if (boldStart < clean.length) {
+                                styles.add(
+                                    ChapterStyle(boldStart, clean.length, InlineStyleKind.BOLD),
+                                )
+                            }
+                            boldStart = -1
+                        }
+                    }
+                }
+                ITALIC_OPEN -> {
+                    if (italicDepth == 0) italicStart = clean.length
+                    italicDepth += 1
+                }
+                ITALIC_CLOSE -> {
+                    if (italicDepth > 0) {
+                        italicDepth -= 1
+                        if (italicDepth == 0 && italicStart >= 0) {
+                            if (italicStart < clean.length) {
+                                styles.add(
+                                    ChapterStyle(
+                                        italicStart,
+                                        clean.length,
+                                        InlineStyleKind.ITALIC,
+                                    ),
+                                )
+                            }
+                            italicStart = -1
+                        }
+                    }
+                }
+                else -> clean.append(character)
+            }
+        }
+        return InlineText(
+            text = decodeEntities(clean.toString()).replace(Regex("[\\t ]+"), " ").trim(),
+            styles = styles,
+        )
     }
 
     private fun imageOrLink(value: String): String =

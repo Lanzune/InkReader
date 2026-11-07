@@ -14,7 +14,7 @@ class HtmlMarkdownFormatProviderTest {
         val markdown = """
             # 第一章
 
-            这是 **粗体** 和 [链接](https://example.com) 以及 `代码`。
+            这是 **粗体** 和 *斜体* 以及 [链接](https://example.com) 和 `代码`。
 
             ## 第二节
 
@@ -27,8 +27,10 @@ class HtmlMarkdownFormatProviderTest {
         assertEquals("note", document.metadata.title)
         assertEquals("markdown", document.formatId)
         assertEquals(listOf("第一章", "第二节"), document.toc.map { it.title })
-        assertTrue(document.chapters.single().text.contains("这是 粗体 和 链接"))
+        assertTrue(document.chapters.single().text.contains("这是 粗体 和 斜体 以及 链接"))
         assertTrue(document.chapters.single().styles.any { it.kind.name == "HEADING1" })
+        assertTrue(document.chapters.single().styles.any { it.kind.name == "BOLD" })
+        assertTrue(document.chapters.single().styles.any { it.kind.name == "ITALIC" })
     }
 
     @Test
