@@ -21,10 +21,23 @@ internal object XhtmlText {
         val kind: InlineStyleKind,
     )
 
+    data class RichLink(
+        val start: Int,
+        val endExclusive: Int,
+        val target: String,
+    )
+
+    data class RichAnchor(
+        val id: String,
+        val charOffset: Int,
+    )
+
     data class RichText(
         val text: String,
         val images: List<RichImage>,
         val styles: List<RichStyle> = emptyList(),
+        val links: List<RichLink> = emptyList(),
+        val anchors: List<RichAnchor> = emptyList(),
     )
 
     private val headPattern = Regex("(?is)<head\\b.*?</head\\s*>")
@@ -56,9 +69,16 @@ internal object XhtmlText {
     private val textAlignPattern = Regex(
         """(?i)\btext-align\s*:\s*(center|right)""",
     )
+    private val anchorOpenPattern = Regex("(?i)<a\\b([^>]*)>")
+    private val anchorClosePattern = Regex("(?i)</a\\s*>")
+    private val hrefPattern = Regex("""(?i)\bhref\s*=\s*["']([^"']*)["']""")
+    private val idPattern = Regex("""(?i)\bid\s*=\s*["']([^"']*)["']""")
     private const val ALIGN_CENTER_OPEN = '\uE010'
     private const val ALIGN_RIGHT_OPEN = '\uE011'
     private const val ALIGN_CLOSE = '\uE012'
+    private const val LINK_OPEN = '\uE020'
+    private const val LINK_CLOSE = '\uE021'
+    private const val ANCHOR = '\uE022'
     private const val IMAGE_PLACEHOLDER = '\uFFFC'
     private const val BOLD_OPEN = '\uE000'
     private const val BOLD_CLOSE = '\uE001'
@@ -77,7 +97,10 @@ internal object XhtmlText {
 
     fun extractRich(html: String): RichText {
         val images = mutableListOf<Pair<String, String>>()
-        var text = markAlignment(html)
+        val linkTargets = mutableListOf<String>()
+        val anchorIds = mutableListOf<String>()
+        var text = markLinks(html, linkTargets, anchorIds)
+        text = markAlignment(text)
         text = markStyles(text)
         text = imagePattern.replace(text) { match ->
             val tag = match.value
@@ -120,6 +143,11 @@ internal object XhtmlText {
         var indentStart = -1
         var alignStart = -1
         var alignKind: InlineStyleKind? = null
+        var linkIndex = 0
+        var anchorIndex = 0
+        val linkStack = ArrayDeque<Pair<String, Int>>()
+        val richLinks = mutableListOf<RichLink>()
+        val richAnchors = mutableListOf<RichAnchor>()
 
         fun closeAlignment() {
             if (alignStart >= 0 && alignStart < clean.length) {
@@ -243,6 +271,25 @@ internal object XhtmlText {
                     alignKind = InlineStyleKind.ALIGN_RIGHT
                 }
                 ALIGN_CLOSE -> closeAlignment()
+                LINK_OPEN -> {
+                    if (linkIndex < linkTargets.size) {
+                        linkStack.addLast(linkTargets[linkIndex] to clean.length)
+                        linkIndex += 1
+                    }
+                }
+                LINK_CLOSE -> {
+                    linkStack.removeLastOrNull()?.let { (target, start) ->
+                        if (start < clean.length) {
+                            richLinks.add(RichLink(start, clean.length, target))
+                        }
+                    }
+                }
+                ANCHOR -> {
+                    if (anchorIndex < anchorIds.size) {
+                        richAnchors.add(RichAnchor(anchorIds[anchorIndex], clean.length))
+                        anchorIndex += 1
+                    }
+                }
                 else -> clean.append(character)
             }
         }
@@ -258,7 +305,39 @@ internal object XhtmlText {
                 imageIndex += 1
             }
         }
-        return RichText(text = cleanText, images = richImages, styles = styles)
+        return RichText(
+            text = cleanText,
+            images = richImages,
+            styles = styles,
+            links = richLinks,
+            anchors = richAnchors,
+        )
+    }
+
+    private fun markLinks(
+        html: String,
+        linkTargets: MutableList<String>,
+        anchorIds: MutableList<String>,
+    ): String {
+        var text = anchorOpenPattern.replace(html) { match ->
+            val attributes = match.groupValues[1]
+            val id = idPattern.find(attributes)?.groupValues?.get(1)?.trim()
+            val href = hrefPattern.find(attributes)?.groupValues?.get(1)?.trim()
+            val prefix = StringBuilder()
+            if (!id.isNullOrBlank()) {
+                anchorIds.add(id)
+                prefix.append(ANCHOR)
+            }
+            if (!href.isNullOrBlank()) {
+                linkTargets.add(decodeEntities(href))
+                prefix.append(LINK_OPEN)
+            }
+            if (prefix.isEmpty()) match.value else "$prefix${match.value}"
+        }
+        text = anchorClosePattern.replace(text) { match ->
+            "$LINK_CLOSE${match.value}"
+        }
+        return text
     }
 
     private fun markAlignment(html: String): String {

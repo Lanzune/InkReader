@@ -28,6 +28,7 @@ class EpubFormatProviderTest {
         assertTrue(text.contains("这是&第一段。"))
         assertTrue(text.contains("第二段 内容。"))
         assertTrue(text.contains("Another paragraph."))
+        assertTrue(text.contains("[1]"))
 
         val image = document.chapters.single().images.single()
         assertEquals("图", image.alt)
@@ -38,6 +39,10 @@ class EpubFormatProviderTest {
         assertTrue(document.chapters.single().styles.any { it.kind.name == "ITALIC" })
         assertTrue(document.chapters.single().styles.any { it.kind.name == "HEADING1" })
         assertTrue(document.chapters.single().styles.any { it.kind.name == "ALIGN_CENTER" })
+
+        val link = document.chapters.single().links.single()
+        assertTrue(link.targetOffset > link.start)
+        assertTrue(document.chapters.single().text.contains("注释内容。"))
     }
 
     @Test

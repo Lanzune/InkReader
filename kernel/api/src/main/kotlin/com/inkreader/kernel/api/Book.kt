@@ -43,12 +43,19 @@ data class ChapterStyle(
     val kind: InlineStyleKind,
 )
 
+data class ChapterLink(
+    val start: Int,
+    val endExclusive: Int,
+    val targetOffset: Int,
+)
+
 data class Chapter(
     val id: String,
     val title: String,
     val text: String,
     val images: List<ChapterImage> = emptyList(),
     val styles: List<ChapterStyle> = emptyList(),
+    val links: List<ChapterLink> = emptyList(),
 )
 
 data class TocEntry(

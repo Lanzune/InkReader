@@ -119,6 +119,8 @@ internal object EpubFixture {
                   <p><b>这是</b>&amp;第一段。</p>
                   <p><i>第二段</i>&nbsp;内容。</p>
                   <p align="center">居中</p>
+                  <p>脚注<a href="#note1">[1]</a></p>
+                  <p><a id="note1"></a>注释内容。</p>
                 </body></html>
                 """.trimIndent().toByteArray(),
             )

@@ -4,6 +4,7 @@ import android.content.Context
 import android.graphics.Canvas
 import android.graphics.Typeface
 import android.text.Layout
+import android.text.Spanned
 import android.text.StaticLayout
 import android.text.TextPaint
 import android.text.TextDirectionHeuristics
@@ -41,6 +42,7 @@ class ReaderSurfaceView(context: Context) : View(context) {
 
     var onPageChanged: ((PageInfo) -> Unit)? = null
     var onCenterTap: (() -> Unit)? = null
+    var onLinkTap: ((Int) -> Unit)? = null
 
     private val contentLeft get() = paddingLeft
     private val contentTop get() = paddingTop
@@ -72,6 +74,7 @@ class ReaderSurfaceView(context: Context) : View(context) {
             }
 
             override fun onSingleTapUp(e: MotionEvent): Boolean {
+                if (handleLinkTap(e)) return true
                 when {
                     e.x < width * 0.28f -> previousPage()
                     e.x > width * 0.72f -> nextPage()
@@ -139,6 +142,23 @@ class ReaderSurfaceView(context: Context) : View(context) {
         setBackgroundColor(theme.background)
         renderedPageKey = -1
         invalidate()
+    }
+
+    private fun handleLinkTap(event: MotionEvent): Boolean {
+        val layout = textLayout ?: return false
+        if (pageStarts.isEmpty()) return false
+        val startLine = pageStarts[currentPage.coerceIn(0, pageStarts.size - 1)]
+        val layoutY = event.y - contentTop - pageTopInset + layout.getLineTop(startLine)
+        if (layoutY < 0f) return false
+        val line = layout.getLineForVertical(layoutY.toInt())
+        val x = event.x - contentLeft
+        if (x < 0f || x > contentWidth) return false
+        val offset = layout.getOffsetForHorizontal(line, x)
+        val spanned = content as? Spanned ?: return false
+        val link = spanned.getSpans(offset, offset, ReaderLinkSpan::class.java).firstOrNull()
+            ?: return false
+        onLinkTap?.invoke(link.targetOffset)
+        return true
     }
 
     fun nextPage(): Boolean {

@@ -6,6 +6,7 @@ import com.inkreader.kernel.api.BookReadException
 import com.inkreader.kernel.api.BookSource
 import com.inkreader.kernel.api.Chapter
 import com.inkreader.kernel.api.ChapterImage
+import com.inkreader.kernel.api.ChapterLink
 import com.inkreader.kernel.api.ChapterStyle
 import com.inkreader.kernel.api.FormatMatch
 import com.inkreader.kernel.api.FormatProvider
@@ -182,6 +183,9 @@ class EpubFormatProvider : FormatProvider {
         val chapterImages = mutableListOf<ChapterImage>()
         val chapterStyles = mutableListOf<ChapterStyle>()
         val resources = LinkedHashMap<String, ByteArray>()
+        val anchors = LinkedHashMap<String, Int>()
+        val chapterStarts = LinkedHashMap<String, Int>()
+        val pendingLinks = mutableListOf<PendingLink>()
         var hasContent = false
         var chapterNumber = 0
 
@@ -196,8 +200,23 @@ class EpubFormatProvider : FormatProvider {
             text.append(chapterText)
             hasContent = true
             chapterNumber += 1
+            chapterStarts[item.path] = offset
 
             val baseDir = EpubArchive.baseDir(item.path)
+            for (anchor in rich.anchors) {
+                anchors["${item.path}#${anchor.id}"] = offset + anchor.charOffset
+            }
+            for (link in rich.links) {
+                pendingLinks.add(
+                    PendingLink(
+                        start = offset + link.start,
+                        endExclusive = offset + link.endExclusive,
+                        target = link.target,
+                        chapterPath = item.path,
+                        baseDir = baseDir,
+                    ),
+                )
+            }
             for (image in rich.images) {
                 val path = EpubArchive.resolve(baseDir, image.src) ?: continue
                 val bytes = archive.entries[path] ?: continue
@@ -234,6 +253,31 @@ class EpubFormatProvider : FormatProvider {
         val fullText = text.toString()
         if (toc.isEmpty()) toc.add(TocEntry("正文", 0))
 
+        val links = pendingLinks.mapNotNull { pending ->
+            if (pending.target.startsWith("http", ignoreCase = true) ||
+                pending.target.startsWith("mailto:", ignoreCase = true)
+            ) {
+                return@mapNotNull null
+            }
+            val pathPart = pending.target.substringBefore('#').trim()
+            val fragment = pending.target.substringAfter('#', "").trim()
+            val targetPath = if (pathPart.isBlank()) {
+                pending.chapterPath
+            } else {
+                EpubArchive.resolve(pending.baseDir, pathPart) ?: return@mapNotNull null
+            }
+            val targetOffset = if (fragment.isBlank()) {
+                chapterStarts[targetPath]
+            } else {
+                anchors["$targetPath#$fragment"]
+            } ?: return@mapNotNull null
+            ChapterLink(
+                start = pending.start,
+                endExclusive = pending.endExclusive,
+                targetOffset = targetOffset,
+            )
+        }
+
         val metadata = packageInfo.metadata.copy(
             title = packageInfo.metadata.title.ifBlank {
                 displayName.substringBeforeLast('.').ifBlank { "未命名书籍" }
@@ -250,6 +294,7 @@ class EpubFormatProvider : FormatProvider {
                     text = fullText,
                     images = chapterImages,
                     styles = chapterStyles,
+                    links = links,
                 ),
             ),
             toc = toc,
@@ -275,5 +320,13 @@ class EpubFormatProvider : FormatProvider {
     private data class NavLink(
         val title: String,
         val path: String,
+    )
+
+    private data class PendingLink(
+        val start: Int,
+        val endExclusive: Int,
+        val target: String,
+        val chapterPath: String,
+        val baseDir: String,
     )
 }

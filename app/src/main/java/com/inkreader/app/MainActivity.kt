@@ -82,6 +82,7 @@ import com.inkreader.kernel.core.ReadingStateStore
 import com.inkreader.kernel.core.SavedReading
 import com.inkreader.plugin.quickjs.PluginSnapshot
 import com.inkreader.plugin.quickjs.QuickJsPluginHost
+import com.inkreader.reader.engine.ReaderLinkSpan
 import com.inkreader.reader.engine.ReaderSurfaceView
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -456,6 +457,7 @@ private fun ReaderScreen(
                         onProgress(info.charOffset)
                     }
                     onCenterTap = { controlsVisible = !controlsVisible }
+                    onLinkTap = { target -> goToCharOffset(target) }
                     setContent(readerText, theme, initialCharOffset)
                     readerView = this
                 }
@@ -685,7 +687,9 @@ private fun buildReaderText(
     chapter: Chapter,
     resources: Map<String, ByteArray>,
 ): CharSequence {
-    if (chapter.images.isEmpty() && chapter.styles.isEmpty()) return chapter.text
+    if (chapter.images.isEmpty() && chapter.styles.isEmpty() && chapter.links.isEmpty()) {
+        return chapter.text
+    }
 
     val builder = SpannableStringBuilder(chapter.text)
     val indentPx = (24 * context.resources.displayMetrics.density).toInt()
@@ -767,6 +771,17 @@ private fun buildReaderText(
                 Spannable.SPAN_EXCLUSIVE_EXCLUSIVE,
             )
         }
+    }
+    for (link in chapter.links) {
+        val start = link.start.coerceIn(0, builder.length)
+        val end = link.endExclusive.coerceIn(start, builder.length)
+        if (start >= end || link.targetOffset < 0) continue
+        builder.setSpan(
+            ReaderLinkSpan(link.targetOffset),
+            start,
+            end,
+            Spannable.SPAN_EXCLUSIVE_EXCLUSIVE,
+        )
     }
     if (chapter.images.isEmpty() || resources.isEmpty()) return builder
     val metrics = context.resources.displayMetrics
