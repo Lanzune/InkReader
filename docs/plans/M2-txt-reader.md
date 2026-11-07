@@ -18,6 +18,7 @@ M2b2 修复：`artifacts/m2b2/inkreader-0.2.2-m2b2-debug.apk`
 M2b3 修复：`artifacts/m2b3/inkreader-0.2.3-m2b3-debug.apk`
 M2b4 修复：`artifacts/m2b4/inkreader-0.2.4-m2b4-debug.apk`
 M2b7 修复：`artifacts/m2b7/inkreader-0.2.7-m2b7-debug.apk`
+M2b9 修复：`artifacts/m2b9/inkreader-0.2.9-m2b9-debug.apk`
 
 ## 范围
 

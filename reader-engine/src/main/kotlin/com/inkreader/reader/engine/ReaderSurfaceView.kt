@@ -18,9 +18,8 @@ import kotlin.math.abs
 import kotlin.math.ceil
 
 /**
- * M1 的最小阅读视图：用 StaticLayout 做行级分页，Canvas 绘制一页。
- *
- * 只支持重排文本、左右翻页/点击翻页和明暗主题；图片、选择和动画在后续模块补。
+ * Reader surface: line-level pagination with StaticLayout and Canvas.
+ * Supports reflowable text, horizontal page turns, tap turns and themes.
  */
 class ReaderSurfaceView(context: Context) : View(context) {
 
@@ -48,8 +47,8 @@ class ReaderSurfaceView(context: Context) : View(context) {
     private val contentWidth get() = (width - paddingLeft - paddingRight).coerceAtLeast(1)
     private val contentHeight get() = (height - paddingTop - paddingBottom - dp(8)).coerceAtLeast(1)
 
-    /** 每一页顶部/底部为字形 ascent/descent 预留的安全量，而不是只给整段布局首尾留。 */
-    private val pageTopInset get() = maxOf(dp(48), ceil(-textPaint.fontMetrics.top).toInt())
+    /** Per-page ascent/descent safety insets. */
+    private val pageTopInset get() = maxOf(dp(16), ceil(-textPaint.fontMetrics.top).toInt())
     private val pageBottomInset get() = maxOf(dp(24), ceil(textPaint.fontMetrics.bottom).toInt())
     private val paginationHeight get() = (contentHeight - pageTopInset - pageBottomInset).coerceAtLeast(1)
 
@@ -84,8 +83,8 @@ class ReaderSurfaceView(context: Context) : View(context) {
     )
 
     init {
-        // 顶部预留控制栏/状态栏空间，底部额外留安全区，避免首尾行被裁切或贴近手势区。
-        setPadding(dp(style.horizontalPaddingDp), dp(96), dp(style.horizontalPaddingDp), dp(56))
+        // Reserve top control/status area and bottom safe area.
+        setPadding(dp(style.horizontalPaddingDp), dp(80), dp(style.horizontalPaddingDp), dp(56))
         textPaint.textSize = sp(style.fontSizeSp)
         setBackgroundColor(theme.background)
         renderedPageKey = -1
@@ -98,7 +97,7 @@ class ReaderSurfaceView(context: Context) : View(context) {
         val restoreOffset = currentCharOffset()
         style = newStyle
         textPaint.textSize = sp(style.fontSizeSp)
-        setPadding(dp(style.horizontalPaddingDp), dp(96), dp(style.horizontalPaddingDp), dp(56))
+        setPadding(dp(style.horizontalPaddingDp), dp(80), dp(style.horizontalPaddingDp), dp(56))
         renderedPageKey = -1
         if (ready) {
             rebuildLayout(restoreOffset)
@@ -178,7 +177,7 @@ class ReaderSurfaceView(context: Context) : View(context) {
         super.onDraw(canvas)
         val pageLayout = obtainPageLayout() ?: return
 
-        // 只绘制当前页自己的文本布局，避免把上一页最后一行画进页首安全区。
+        // Draw only the current page's own layout, so previous lines cannot enter the top safe area.
         canvas.save()
         canvas.clipRect(
             contentLeft,

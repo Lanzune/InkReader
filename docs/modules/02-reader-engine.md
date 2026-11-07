@@ -14,6 +14,7 @@
 - M2b3：首尾行使用 includePad，顶部/底部安全区加大
 - M2b4：每页按 fontMetrics 预留 ascent/descent，修复任意页首尾裁切
 - M2b7：当前页使用独立 `StaticLayout` 绘制，不再从整本书布局裁剪
+- M2b9：顶部安全区 80+16dp，底部 56+24dp；USB 直连真机验证
 - 尚未有动画、图片、选择、页眉页脚；留到 M2/M5
 
 ## 目的
