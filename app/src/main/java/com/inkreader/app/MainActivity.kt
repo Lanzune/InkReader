@@ -7,6 +7,11 @@ import android.content.Intent
 import android.content.pm.ApplicationInfo
 import android.net.Uri
 import android.os.Bundle
+import android.text.Spannable
+import android.text.SpannableStringBuilder
+import android.text.Layout
+import android.text.style.AlignmentSpan
+import android.text.style.ImageSpan
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -62,6 +67,8 @@ import com.inkreader.formats.epub.EpubFormatProvider
 import com.inkreader.formats.txt.TxtFormatProvider
 import com.inkreader.kernel.api.BookDocument
 import com.inkreader.kernel.api.BuiltInThemes
+import com.inkreader.kernel.api.Chapter
+import com.inkreader.kernel.api.ChapterImage
 import com.inkreader.kernel.api.PageInfo
 import com.inkreader.kernel.api.ReaderTheme
 import com.inkreader.kernel.core.BookOpener
@@ -368,6 +375,10 @@ private fun ReaderScreen(
     onBack: () -> Unit,
 ) {
     val chapter = book.chapters.first()
+    val context = LocalContext.current
+    val readerText = remember(chapter, book.resources) {
+        buildReaderText(context, chapter, book.resources)
+    }
     var pageInfo by remember { mutableStateOf(PageInfo(0, 1)) }
     var controlsVisible by remember { mutableStateOf(true) }
     var tocVisible by remember { mutableStateOf(false) }
@@ -441,7 +452,7 @@ private fun ReaderScreen(
                         onProgress(info.charOffset)
                     }
                     onCenterTap = { controlsVisible = !controlsVisible }
-                    setContent(chapter.text, theme, initialCharOffset)
+                    setContent(readerText, theme, initialCharOffset)
                     readerView = this
                 }
             },
@@ -663,6 +674,48 @@ private fun applyWindowBrightness(activity: Activity?, value: Float?) {
     val params = window.attributes
     params.screenBrightness = value?.coerceIn(0.01f, 1f) ?: -1f
     window.attributes = params
+}
+
+private fun buildReaderText(
+    context: Context,
+    chapter: Chapter,
+    resources: Map<String, ByteArray>,
+): CharSequence {
+    if (chapter.images.isEmpty() || resources.isEmpty()) return chapter.text
+
+    val builder = SpannableStringBuilder(chapter.text)
+    val metrics = context.resources.displayMetrics
+    val maxWidth = (metrics.widthPixels - 48 * metrics.density).toInt().coerceAtLeast(1)
+    val maxHeight = (metrics.heightPixels * 0.55f).toInt().coerceAtLeast(1)
+
+    chapter.images.sortedByDescending { it.charOffset }.forEach { image ->
+        if (image.charOffset !in 0 until builder.length) return@forEach
+        if (builder[image.charOffset] != '\uFFFC') return@forEach
+        val bitmapBytes = resources[image.resource]
+        val drawable = bitmapBytes?.let { LazyEpubDrawable(it, maxWidth, maxHeight) }
+        if (drawable == null || !drawable.isValid) {
+            builder.replace(
+                image.charOffset,
+                image.charOffset + 1,
+                image.alt.ifBlank { "［图片］" },
+            )
+            return@forEach
+        }
+        drawable.setBounds(0, 0, drawable.intrinsicWidth, drawable.intrinsicHeight)
+        builder.setSpan(
+            ImageSpan(drawable, ImageSpan.ALIGN_BOTTOM),
+            image.charOffset,
+            image.charOffset + 1,
+            Spannable.SPAN_EXCLUSIVE_EXCLUSIVE,
+        )
+        builder.setSpan(
+            AlignmentSpan.Standard(Layout.Alignment.ALIGN_CENTER),
+            image.charOffset,
+            image.charOffset + 1,
+            Spannable.SPAN_EXCLUSIVE_EXCLUSIVE,
+        )
+    }
+    return builder
 }
 
 private tailrec fun Context.findActivity(): Activity? = when (this) {

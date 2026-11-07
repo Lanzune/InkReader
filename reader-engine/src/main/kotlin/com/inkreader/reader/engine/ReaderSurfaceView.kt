@@ -30,7 +30,7 @@ class ReaderSurfaceView(context: Context) : View(context) {
 
     private var theme: ReaderTheme = BuiltInThemes.Light
     private var style: ReaderStyle = ReaderStyle()
-    private var content: String = ""
+    private var content: CharSequence = ""
     private var textLayout: StaticLayout? = null
     private var renderedPageLayout: StaticLayout? = null
     private var renderedPageKey: Int = -1
@@ -104,7 +104,7 @@ class ReaderSurfaceView(context: Context) : View(context) {
         }
     }
 
-    fun setContent(text: String, readerTheme: ReaderTheme = theme, initialCharOffset: Int = 0) {
+    fun setContent(text: CharSequence, readerTheme: ReaderTheme = theme, initialCharOffset: Int = 0) {
         content = text
         theme = readerTheme
         textPaint.color = theme.foreground
@@ -266,7 +266,7 @@ class ReaderSurfaceView(context: Context) : View(context) {
             content.length
         }.coerceIn(start, content.length)
 
-        val slice = content.substring(start, end)
+        val slice = content.subSequence(start, end)
         if (slice.isEmpty()) return null
 
         val pageLayout = StaticLayout.Builder

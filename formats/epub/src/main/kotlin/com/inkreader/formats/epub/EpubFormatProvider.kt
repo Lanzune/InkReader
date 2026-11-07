@@ -5,6 +5,7 @@ import com.inkreader.kernel.api.BookMetadata
 import com.inkreader.kernel.api.BookReadException
 import com.inkreader.kernel.api.BookSource
 import com.inkreader.kernel.api.Chapter
+import com.inkreader.kernel.api.ChapterImage
 import com.inkreader.kernel.api.FormatMatch
 import com.inkreader.kernel.api.FormatProvider
 import com.inkreader.kernel.api.LayoutKind
@@ -177,12 +178,15 @@ class EpubFormatProvider : FormatProvider {
         val navigationByPath = navigation.groupBy { it.path }
         val text = StringBuilder()
         val toc = mutableListOf<TocEntry>()
+        val chapterImages = mutableListOf<ChapterImage>()
+        val resources = LinkedHashMap<String, ByteArray>()
         var hasContent = false
         var chapterNumber = 0
 
         for (item in packageInfo.spine) {
             val html = archive.text(item.path) ?: continue
-            val chapterText = XhtmlText.extract(html)
+            val rich = XhtmlText.extractRich(html)
+            val chapterText = rich.text
             if (chapterText.isBlank()) continue
 
             if (hasContent) text.append("\n\n")
@@ -190,6 +194,21 @@ class EpubFormatProvider : FormatProvider {
             text.append(chapterText)
             hasContent = true
             chapterNumber += 1
+
+            val baseDir = EpubArchive.baseDir(item.path)
+            for (image in rich.images) {
+                val path = EpubArchive.resolve(baseDir, image.src) ?: continue
+                val bytes = archive.entries[path] ?: continue
+                if (bytes.isEmpty()) continue
+                resources.putIfAbsent(path, bytes)
+                chapterImages.add(
+                    ChapterImage(
+                        charOffset = offset + image.charOffset,
+                        resource = path,
+                        alt = image.alt,
+                    ),
+                )
+            }
 
             val links = navigationByPath[item.path].orEmpty()
             if (links.isNotEmpty()) {
@@ -213,8 +232,16 @@ class EpubFormatProvider : FormatProvider {
             metadata = metadata,
             formatId = id,
             layout = LayoutKind.REFLOWABLE,
-            chapters = listOf(Chapter(id = "epub-0", title = metadata.title, text = fullText)),
+            chapters = listOf(
+                Chapter(
+                    id = "epub-0",
+                    title = metadata.title,
+                    text = fullText,
+                    images = chapterImages,
+                ),
+            ),
             toc = toc,
+            resources = resources,
         )
     }
 

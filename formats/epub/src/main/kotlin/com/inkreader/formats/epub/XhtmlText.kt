@@ -8,6 +8,17 @@ package com.inkreader.formats.epub
  * scripts/styles so nothing executable reaches the reader.
  */
 internal object XhtmlText {
+    data class RichImage(
+        val src: String,
+        val alt: String,
+        val charOffset: Int,
+    )
+
+    data class RichText(
+        val text: String,
+        val images: List<RichImage>,
+    )
+
     private val headPattern = Regex("(?is)<head\\b.*?</head\\s*>")
     private val hiddenPattern = Regex(
         "(?is)<(script|style|noscript|svg|iframe|object|audio|video)\\b.*?</\\1\\s*>",
@@ -17,11 +28,29 @@ internal object XhtmlText {
     private val blockEndPattern = Regex(
         "(?i)</(p|div|h[1-6]|li|blockquote|tr|section|article|header|footer|figcaption|pre)\\s*>",
     )
+    private val imagePattern = Regex("(?is)<img\\b[^>]*>")
+    private val imageSrcPattern = Regex("""(?i)\bsrc\s*=\s*["']([^"']+)["']""")
+    private val imageAltPattern = Regex("""(?i)\balt\s*=\s*["']([^"']*)["']""")
     private val tagPattern = Regex("(?s)<[^>]+>")
     private val titlePattern = Regex("(?is)<title[^>]*>(.*?)</title\\s*>")
+    private const val IMAGE_PLACEHOLDER = '\uFFFC'
 
-    fun extract(html: String): String {
+    fun extract(html: String): String = extractRich(html).text
+
+    fun extractRich(html: String): RichText {
+        val images = mutableListOf<Pair<String, String>>()
         var text = html
+        text = imagePattern.replace(text) { match ->
+            val tag = match.value
+            val src = imageSrcPattern.find(tag)?.groupValues?.get(1).orEmpty()
+            val alt = imageAltPattern.find(tag)?.groupValues?.get(1).orEmpty()
+            if (src.isBlank()) {
+                ""
+            } else {
+                images.add(src to decodeEntities(alt))
+                IMAGE_PLACEHOLDER.toString()
+            }
+        }
         text = headPattern.replace(text, " ")
         text = hiddenPattern.replace(text, " ")
         text = commentPattern.replace(text, " ")
@@ -34,8 +63,18 @@ internal object XhtmlText {
         text = text.lines().joinToString("\n") { line ->
             line.replace(Regex("[\\t ]+"), " ").trim()
         }
-        text = text.replace(Regex("\\n{3,}"), "\n\n")
-        return text.trim()
+        text = text.replace(Regex("\\n{3,}"), "\n\n").trim()
+
+        val richImages = mutableListOf<RichImage>()
+        var imageIndex = 0
+        text.forEachIndexed { offset, character ->
+            if (character == IMAGE_PLACEHOLDER && imageIndex < images.size) {
+                val (src, alt) = images[imageIndex]
+                richImages.add(RichImage(src = src, alt = alt, charOffset = offset))
+                imageIndex += 1
+            }
+        }
+        return RichText(text = text, images = richImages)
     }
 
     fun title(html: String): String? = titlePattern.find(html)

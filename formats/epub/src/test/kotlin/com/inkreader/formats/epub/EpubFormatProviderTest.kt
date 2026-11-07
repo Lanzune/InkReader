@@ -28,6 +28,11 @@ class EpubFormatProviderTest {
         assertTrue(text.contains("这是&第一段。"))
         assertTrue(text.contains("第二段 内容。"))
         assertTrue(text.contains("Another paragraph."))
+
+        val image = document.chapters.single().images.single()
+        assertEquals("图", image.alt)
+        assertEquals(1, document.resources.size)
+        assertTrue(document.resources.containsKey("OEBPS/images/sample.png"))
     }
 
     @Test

@@ -20,10 +20,17 @@ data class BookMetadata(
     val language: String? = null,
 )
 
+data class ChapterImage(
+    val charOffset: Int,
+    val resource: String,
+    val alt: String = "",
+)
+
 data class Chapter(
     val id: String,
     val title: String,
     val text: String,
+    val images: List<ChapterImage> = emptyList(),
 )
 
 data class TocEntry(
@@ -42,6 +49,7 @@ data class BookDocument(
     val layout: LayoutKind,
     val chapters: List<Chapter>,
     val toc: List<TocEntry> = emptyList(),
+    val resources: Map<String, ByteArray> = emptyMap(),
 )
 
 data class FormatMatch(

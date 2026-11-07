@@ -2,6 +2,7 @@ package com.inkreader.formats.epub
 
 import com.inkreader.kernel.api.BookSource
 import java.io.ByteArrayOutputStream
+import java.util.Base64
 import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
 
@@ -128,8 +129,17 @@ internal object EpubFixture {
                 <html><head><title>第二章</title></head><body>
                   <h1>第二章</h1>
                   <p>Another paragraph.</p>
+                  <p><img src="images/sample.png" alt="图"/></p>
                 </body></html>
                 """.trimIndent().toByteArray(),
+            )
+            zip.closeEntry()
+
+            zip.putNextEntry(ZipEntry("OEBPS/images/sample.png"))
+            zip.write(
+                Base64.getDecoder().decode(
+                    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Y9Zl9sAAAAASUVORK5CYII=",
+                ),
             )
             zip.closeEntry()
         }

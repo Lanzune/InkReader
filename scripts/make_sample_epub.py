@@ -1,9 +1,19 @@
+from io import BytesIO
 from pathlib import Path
 from zipfile import ZIP_DEFLATED, ZIP_STORED, ZipFile
+
+from PIL import Image, ImageDraw
 
 root = Path(__file__).resolve().parents[1]
 out = root / "app" / "src" / "debug" / "assets" / "sample.epub"
 out.parent.mkdir(parents=True, exist_ok=True)
+
+image = Image.new("RGB", (720, 360), "#efe4cf")
+draw = ImageDraw.Draw(image)
+draw.rectangle((24, 24, 696, 336), outline="#8a6f4d", width=4)
+draw.text((70, 150), "INKREADER SAMPLE ILLUSTRATION", fill="#5a4632")
+image_bytes = BytesIO()
+image.save(image_bytes, format="PNG")
 
 container = """<?xml version="1.0" encoding="UTF-8"?>
 <container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container">
@@ -57,6 +67,7 @@ chapters = {
     "chapter2.xhtml": """<html xmlns="http://www.w3.org/1999/xhtml"><head><title>第二章 风</title></head><body>
 <h1>第二章 风</h1>
 <p>风没有方向，只有声音。</p>
+<p><img src="images/sample.png" alt="示例插图"/></p>
 <p>他沿着河岸走，路灯的影子在水面上碎成很多段。</p>
 <p>“你迟到了。”她说。</p>
 <p>“路上有风。”他回答。</p>
@@ -76,5 +87,6 @@ with ZipFile(out, "w") as z:
     z.writestr("OEBPS/nav.xhtml", nav, compress_type=ZIP_DEFLATED)
     for name, body in chapters.items():
         z.writestr(f"OEBPS/{name}", body, compress_type=ZIP_DEFLATED)
+    z.writestr("OEBPS/images/sample.png", image_bytes.getvalue(), compress_type=ZIP_DEFLATED)
 
 print(out)
