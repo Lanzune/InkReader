@@ -68,6 +68,7 @@ import androidx.core.view.WindowInsetsControllerCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
 import com.inkreader.formats.epub.EpubFormatProvider
+import com.inkreader.formats.htmlmd.HtmlMarkdownFormatProvider
 import com.inkreader.formats.pdf.PdfFormatProvider
 import com.inkreader.formats.txt.TxtFormatProvider
 import com.inkreader.kernel.api.BookDocument
@@ -157,7 +158,14 @@ private fun InkReaderApp() {
                 withContext(Dispatchers.IO) {
                     val source = ContentBookSource(context, uri)
                     try {
-                        BookOpener(listOf(TxtFormatProvider(), EpubFormatProvider(), PdfFormatProvider())).open(source, encoding)
+                        BookOpener(
+                            listOf(
+                                TxtFormatProvider(),
+                                EpubFormatProvider(),
+                                PdfFormatProvider(),
+                                HtmlMarkdownFormatProvider(),
+                            ),
+                        ).open(source, encoding)
                     } finally {
                         source.close()
                     }
@@ -254,6 +262,40 @@ private fun InkReaderApp() {
         }
     }
 
+    fun openSampleMarkdown() {
+        screen = Screen.Loading
+        error = null
+        scope.launch {
+            val result = runCatching {
+                withContext(Dispatchers.IO) {
+                    val source = AssetBookSource(
+                        context.assets,
+                        "sample.md",
+                        "示例 Markdown",
+                        "text/markdown",
+                    )
+                    try {
+                        BookOpener(listOf(HtmlMarkdownFormatProvider())).open(source)
+                    } finally {
+                        source.close()
+                    }
+                }
+            }
+            result.onSuccess { book ->
+                screen = Screen.Reading(
+                    book = book,
+                    uri = Uri.parse("asset:///sample.md"),
+                    encoding = null,
+                    initialOffset = 0,
+                    persistProgress = false,
+                )
+            }.onFailure { failure ->
+                error = "示例 Markdown 打开失败：${failure.message ?: failure.javaClass.simpleName}"
+                screen = Screen.Home
+            }
+        }
+    }
+
     when (val current = screen) {
         Screen.Home -> HomeScreen(
             saved = saved,
@@ -264,6 +306,7 @@ private fun InkReaderApp() {
             onOpen = { openDocument.launch(arrayOf("*/*")) },
             onOpenSample = { openSampleEpub() },
             onOpenPdfSample = { openSamplePdf() },
+            onOpenMarkdownSample = { openSampleMarkdown() },
             onContinue = {
                 saved?.let { record ->
                     openUri(Uri.parse(record.uri), record.encoding, record.charOffset)
@@ -346,6 +389,7 @@ private fun HomeScreen(
     onOpen: () -> Unit,
     onOpenSample: () -> Unit,
     onOpenPdfSample: () -> Unit,
+    onOpenMarkdownSample: () -> Unit,
     onContinue: () -> Unit,
 ) {
     Surface(modifier = Modifier.fillMaxSize()) {
@@ -357,7 +401,7 @@ private fun HomeScreen(
             horizontalAlignment = Alignment.Start,
         ) {
             Text(text = "InkReader", style = MaterialTheme.typography.headlineLarge)
-            Text(text = "M4 · TXT / EPUB / PDF", style = MaterialTheme.typography.titleMedium)
+            Text(text = "M4 · TXT / EPUB / PDF / HTML / MD", style = MaterialTheme.typography.titleMedium)
             Text(
                 text = KernelEngine().versionLabel(),
                 style = MaterialTheme.typography.bodySmall,
@@ -376,6 +420,9 @@ private fun HomeScreen(
                 }
                 TextButton(onClick = onOpenPdfSample) {
                     Text("打开内置示例 PDF（调试）")
+                }
+                TextButton(onClick = onOpenMarkdownSample) {
+                    Text("打开内置示例 Markdown（调试）")
                 }
             }
             when {
@@ -415,7 +462,7 @@ private fun HomeScreen(
                 )
             }
             Text(
-                text = "支持 TXT/EPUB/PDF；最近阅读和位置会保存。",
+                text = "支持 TXT/EPUB/PDF/HTML/Markdown；最近阅读和位置会保存。",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
