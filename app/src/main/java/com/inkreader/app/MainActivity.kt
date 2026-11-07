@@ -135,6 +135,7 @@ private fun InkReaderApp() {
     var pluginSnapshot: PluginSnapshot? by remember { mutableStateOf(null) }
     var pluginError: String? by remember { mutableStateOf(null) }
     var pluginEnabled by remember { mutableStateOf(pluginPrefs.getBoolean("enabled", true)) }
+    var backupMessage by remember { mutableStateOf<String?>(null) }
     val pluginDir = remember(context) { File(context.filesDir, "plugins") }
     var installedPlugin by remember { mutableStateOf(PluginInstaller.findInstalled(pluginDir)) }
 
@@ -197,6 +198,73 @@ private fun InkReaderApp() {
         setPluginEnabled(true)
     }
 
+    val exportBackup = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.CreateDocument("application/zip"),
+    ) { uri ->
+        if (uri != null) {
+            scope.launch {
+                val result = runCatching {
+                    withContext(Dispatchers.IO) {
+                        DataBackup.export(
+                            context = context,
+                            target = uri,
+                            saved = saved,
+                            settings = settings,
+                            pluginEnabled = pluginEnabled,
+                            installedPlugin = installedPlugin,
+                        )
+                    }
+                }
+                result.onSuccess {
+                    backupMessage = "阅读数据已导出"
+                }.onFailure { failure ->
+                    backupMessage = "导出失败：${failure.message ?: failure.javaClass.simpleName}"
+                }
+            }
+        }
+    }
+
+    val importBackup = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument(),
+    ) { uri ->
+        if (uri != null) {
+            scope.launch {
+                val result = runCatching {
+                    withContext(Dispatchers.IO) {
+                        DataBackup.import(context, uri)
+                    }
+                }
+                result.onSuccess { restored ->
+                    settings = restored.settings
+                    settingsStore.save(restored.settings)
+                    saved = restored.saved
+                    if (restored.saved != null) {
+                        val record = restored.saved
+                        readingState.save(
+                            record.uri,
+                            record.title,
+                            record.charOffset,
+                            record.encoding,
+                        )
+                    } else {
+                        readingState.clear()
+                    }
+                    pluginEnabled = restored.pluginEnabled
+                    pluginPrefs.edit().putBoolean("enabled", restored.pluginEnabled).apply()
+                    installedPlugin = restored.installedPlugin
+                    backupMessage = if (restored.bookRestored) {
+                        "备份已恢复，阅读进度和设置已还原"
+                    } else {
+                        "设置已恢复；备份中没有可还原的书籍"
+                    }
+                    screen = Screen.Home
+                }.onFailure { failure ->
+                    backupMessage = "导入失败：${failure.message ?: failure.javaClass.simpleName}"
+                }
+            }
+        }
+    }
+
     fun installSampleInkp() {
         scope.launch {
             val result = runCatching {
@@ -231,7 +299,16 @@ private fun InkReaderApp() {
         scope.launch {
             val result = runCatching {
                 withContext(Dispatchers.IO) {
-                    val source = ContentBookSource(context, uri)
+                    val source = if (uri.scheme == "file") {
+                        val file = File(uri.path ?: error("无效文件路径"))
+                        FileBookSource(
+                            file = file,
+                            displayName = file.name,
+                            mimeType = mimeTypeForName(file.name),
+                        )
+                    } else {
+                        ContentBookSource(context, uri)
+                    }
                     try {
                         BookOpener(
                             listOf(
@@ -379,6 +456,7 @@ private fun InkReaderApp() {
             pluginError = pluginError,
             pluginEnabled = pluginEnabled,
             installedPlugin = installedPlugin,
+            backupMessage = backupMessage,
             showSample = debuggable,
             onOpen = { openDocument.launch(arrayOf("*/*")) },
             onOpenSample = { openSampleEpub() },
@@ -388,6 +466,8 @@ private fun InkReaderApp() {
             onUninstallPlugin = { uninstallPlugin() },
             onInstallSampleInkp = { installSampleInkp() },
             onTogglePlugin = { setPluginEnabled(!pluginEnabled) },
+            onExportBackup = { exportBackup.launch("inkreader-backup.zip") },
+            onImportBackup = { importBackup.launch(arrayOf("application/zip", "*/*")) },
             onContinue = {
                 saved?.let { record ->
                     openUri(Uri.parse(record.uri), record.encoding, record.charOffset)
@@ -461,6 +541,15 @@ private fun InkReaderApp() {
     }
 }
 
+private fun mimeTypeForName(name: String): String? = when (name.substringAfterLast('.', "").lowercase()) {
+    "txt" -> "text/plain"
+    "epub" -> "application/epub+zip"
+    "pdf" -> "application/pdf"
+    "md", "markdown" -> "text/markdown"
+    "html", "htm", "xhtml" -> "text/html"
+    else -> null
+}
+
 @Composable
 private fun HomeScreen(
     saved: SavedReading?,
@@ -469,6 +558,7 @@ private fun HomeScreen(
     pluginError: String?,
     pluginEnabled: Boolean,
     installedPlugin: InstalledPlugin?,
+    backupMessage: String?,
     showSample: Boolean,
     onOpen: () -> Unit,
     onOpenSample: () -> Unit,
@@ -478,6 +568,8 @@ private fun HomeScreen(
     onUninstallPlugin: () -> Unit,
     onInstallSampleInkp: () -> Unit,
     onTogglePlugin: () -> Unit,
+    onExportBackup: () -> Unit,
+    onImportBackup: () -> Unit,
     onContinue: () -> Unit,
 ) {
     Surface(modifier = Modifier.fillMaxSize()) {
@@ -524,6 +616,21 @@ private fun HomeScreen(
                 TextButton(onClick = onUninstallPlugin) {
                     Text("卸载已安装插件：${installedPlugin.manifest.name}")
                 }
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedButton(onClick = onExportBackup) {
+                    Text("导出阅读数据")
+                }
+                OutlinedButton(onClick = onImportBackup) {
+                    Text("导入阅读数据")
+                }
+            }
+            if (backupMessage != null) {
+                Text(
+                    text = backupMessage,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
             }
             if (pluginError != null) {
                 Text(
