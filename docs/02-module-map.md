@@ -11,7 +11,7 @@
 | 阅读引擎 | `reader-engine` | [02-reader-engine](modules/02-reader-engine.md) | M1 | 内核 API | M1 最小分页已实现 |
 | TXT 格式 | `formats/txt` | [03-format-txt](modules/03-format-txt.md) | M1 | 内核 API | M1 最小版已实现 |
 | EPUB 格式 | `formats/epub` | [04-format-epub](modules/04-format-epub.md) | M3 | 内核 API、阅读引擎 | 待开始 |
-| PDF 格式 | `formats/pdf` | [05-format-pdf](modules/05-format-pdf.md) | M4 | 内核 API | 待开始 |
+| PDF 格式 | `formats/pdf` | [05-format-pdf](modules/05-format-pdf.md) | M4 | 内核 API | M4a 已实现 |
 | HTML / Markdown | `formats/html-md` | [06-format-html-md](modules/06-format-html-md.md) | M4 | 内核 API、阅读引擎 | 待开始 |
 | UI 壳层 | `app` | [07-ui-shell](modules/07-ui-shell.md) | M1 | 内核 API | M1 已实现，等待真机 |
 | 存储、缓存与隐私 | `kernel/core`, `docs` | [08-storage-privacy](modules/08-storage-privacy.md) | M1 | 内核 API | M1 仅 SAF 读取；进度/缓存在 M2 |

@@ -14,16 +14,16 @@
 
 ## 当前状态
 
-**阶段：M3 EPUB 已完成。**
+**阶段：M4a PDF 已真机验证。**
 
 - M0～M2：TXT 阅读器完成，标签 `m2-txt-reader`
-- M3：EPUB 2/3 文本、目录、图片、样式、标题、对齐、脚注/内部链接
-- M3c：class CSS、首行缩进、7 个 EPUB 单测、真实 3936 页书验证
-- 标签 `m3-epub`
+- M3：EPUB 完成，标签 `m3-epub`
+- M4a：PDF 页面渲染、翻页、缩放、夜间
+- M4b：HTML/Markdown（下一步）
 - Android 16（API 36）
 - 无 `INTERNET`，16 KB 对齐，v2 签名
 
-下一步：规划 M4（搜索/书架/设置）。
+下一步：M4b HTML/Markdown，随后 M4c 回归并合并 M4。
 
 ## 目录结构
 

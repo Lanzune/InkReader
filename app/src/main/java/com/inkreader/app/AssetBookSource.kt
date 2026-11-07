@@ -8,8 +8,9 @@ class AssetBookSource(
     private val assets: AssetManager,
     private val assetPath: String,
     override val displayName: String,
+    private val assetMimeType: String = "application/epub+zip",
 ) : BookSource {
-    override val mimeType: String = "application/epub+zip"
+    override val mimeType: String = assetMimeType
     override val size: Long = 0L
 
     override fun readAll(): ByteArray =
