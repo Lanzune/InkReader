@@ -490,7 +490,7 @@ private fun HomeScreen(
             horizontalAlignment = Alignment.Start,
         ) {
             Text(text = "InkReader", style = MaterialTheme.typography.headlineLarge)
-            Text(text = "M6 · 多格式阅读", style = MaterialTheme.typography.titleMedium)
+            Text(text = "TXT / EPUB / PDF / HTML / Markdown", style = MaterialTheme.typography.titleMedium)
             Text(
                 text = KernelEngine().versionLabel(),
                 style = MaterialTheme.typography.bodySmall,
