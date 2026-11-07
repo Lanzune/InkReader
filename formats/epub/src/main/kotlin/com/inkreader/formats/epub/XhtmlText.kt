@@ -74,6 +74,9 @@ internal object XhtmlText {
     private val hrefPattern = Regex("""(?i)\bhref\s*=\s*["']([^"']*)["']""")
     private val idPattern = Regex("""(?i)\bid\s*=\s*["']([^"']*)["']""")
     private val classPattern = Regex("""(?i)\bclass\s*=\s*["']([^"']*)["']""")
+    private val taggedIdPattern = Regex(
+        """(?i)<(?!(?:a)\b)([a-z][a-z0-9:_-]*)\b([^>]*)>""",
+    )
     private val styleBlockPattern = Regex("(?is)<style\\b[^>]*>(.*?)</style\\s*>")
     private val cssRulePattern = Regex("(?is)([^{}]+)\\{([^{}]*)\\}")
     private val textIndentPattern = Regex("""(?i)\btext-indent\s*:\s*([^;]+)""")
@@ -83,6 +86,7 @@ internal object XhtmlText {
     private const val LINK_OPEN = '\uE020'
     private const val LINK_CLOSE = '\uE021'
     private const val ANCHOR = '\uE022'
+    private const val ANCHOR_EXTRA = '\uE023'
     private const val FIRST_INDENT_OPEN = '\uE030'
     private const val FIRST_INDENT_CLOSE = '\uE031'
     private const val IMAGE_PLACEHOLDER = '\uFFFC'
@@ -105,8 +109,10 @@ internal object XhtmlText {
         val images = mutableListOf<Pair<String, String>>()
         val linkTargets = mutableListOf<String>()
         val anchorIds = mutableListOf<String>()
+        val extraAnchorIds = mutableListOf<String>()
         val css = parseCss(html)
         var text = markLinks(html, linkTargets, anchorIds)
+        text = markExtraAnchors(text, extraAnchorIds)
         text = markAlignment(text, css)
         text = markStyles(text)
         text = imagePattern.replace(text) { match ->
@@ -154,6 +160,7 @@ internal object XhtmlText {
         var firstIndentStart = -1
         var linkIndex = 0
         var anchorIndex = 0
+        var extraAnchorIndex = 0
         val linkStack = ArrayDeque<Pair<String, Int>>()
         val richLinks = mutableListOf<RichLink>()
         val richAnchors = mutableListOf<RichAnchor>()
@@ -320,6 +327,14 @@ internal object XhtmlText {
                         anchorIndex += 1
                     }
                 }
+                ANCHOR_EXTRA -> {
+                    if (extraAnchorIndex < extraAnchorIds.size) {
+                        richAnchors.add(
+                            RichAnchor(extraAnchorIds[extraAnchorIndex], clean.length),
+                        )
+                        extraAnchorIndex += 1
+                    }
+                }
                 else -> clean.append(character)
             }
         }
@@ -373,6 +388,20 @@ internal object XhtmlText {
             "$LINK_CLOSE${match.value}"
         }
         return text
+    }
+
+    private fun markExtraAnchors(
+        html: String,
+        anchorIds: MutableList<String>,
+    ): String = taggedIdPattern.replace(html) { match ->
+        val attributes = match.groupValues[2]
+        val id = idPattern.find(attributes)?.groupValues?.get(1)?.trim()
+        if (id.isNullOrBlank()) {
+            match.value
+        } else {
+            anchorIds.add(id)
+            "$ANCHOR_EXTRA${match.value}"
+        }
     }
 
     private fun markAlignment(html: String, css: Map<String, CssStyle>): String {

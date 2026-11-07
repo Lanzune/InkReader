@@ -41,9 +41,11 @@ class EpubFormatProviderTest {
         assertTrue(document.chapters.single().styles.any { it.kind.name == "ALIGN_CENTER" })
         assertTrue(document.chapters.single().styles.any { it.kind.name == "FIRST_LINE_INDENT" })
 
-        val link = document.chapters.single().links.single()
+        val link = document.chapters.single().links.first()
         assertTrue(link.targetOffset > link.start)
         assertTrue(document.chapters.single().text.contains("注释内容。"))
+        assertTrue(document.chapters.single().links.size == 2)
+        assertTrue(document.chapters.single().text.contains("第二条注释。"))
     }
 
     @Test

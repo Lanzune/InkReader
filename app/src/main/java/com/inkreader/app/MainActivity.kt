@@ -390,6 +390,7 @@ private fun ReaderScreen(
     var tocVisible by remember { mutableStateOf(false) }
     var settingsVisible by remember { mutableStateOf(false) }
     var readerView by remember { mutableStateOf<ReaderSurfaceView?>(null) }
+    var linkHistory by remember { mutableStateOf<List<Int>>(emptyList()) }
 
     val systemDark = isSystemInDarkTheme()
     val theme = when (settings.themeMode) {
@@ -438,6 +439,12 @@ private fun ReaderScreen(
     }
 
     fun leaveReader() {
+        if (linkHistory.isNotEmpty()) {
+            val target = linkHistory.last()
+            linkHistory = linkHistory.dropLast(1)
+            readerView?.goToCharOffset(target)
+            return
+        }
         onProgress(readerView?.currentCharOffset() ?: pageInfo.charOffset)
         applyWindowBrightness(activity, originalBrightness)
         insetsController?.show(WindowInsetsCompat.Type.navigationBars())
@@ -458,7 +465,10 @@ private fun ReaderScreen(
                         onProgress(info.charOffset)
                     }
                     onCenterTap = { controlsVisible = !controlsVisible }
-                    onLinkTap = { target -> goToCharOffset(target) }
+                    onLinkTap = { target ->
+                        linkHistory = linkHistory + currentCharOffset()
+                        goToCharOffset(target)
+                    }
                     setContent(readerText, theme, initialCharOffset)
                     readerView = this
                 }

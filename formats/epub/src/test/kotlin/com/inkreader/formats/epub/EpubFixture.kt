@@ -126,6 +126,8 @@ internal object EpubFixture {
                   <p class="indent">缩进段落</p>
                   <p>脚注<a href="#note1">[1]</a></p>
                   <p><a id="note1"></a>注释内容。</p>
+                  <p>脚注2<a href="#note2">[2]</a></p>
+                  <p id="note2">第二条注释。</p>
                 </body></html>
                 """.trimIndent().toByteArray(),
             )
