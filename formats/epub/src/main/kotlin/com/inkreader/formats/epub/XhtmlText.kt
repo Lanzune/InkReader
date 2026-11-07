@@ -1,11 +1,12 @@
 package com.inkreader.formats.epub
 
+import com.inkreader.kernel.api.InlineStyleKind
+
 /**
  * Deliberately small XHTML-to-text conversion for the M3 text reader.
  *
- * The reader currently consumes plain text. Rich blocks, images and CSS are a
- * later M3 increment; this extractor keeps paragraph boundaries and removes
- * scripts/styles so nothing executable reaches the reader.
+ * Supports paragraph boundaries, images and basic bold/italic ranges. Rich CSS
+ * layout and links are later M3b increments.
  */
 internal object XhtmlText {
     data class RichImage(
@@ -14,9 +15,16 @@ internal object XhtmlText {
         val charOffset: Int,
     )
 
+    data class RichStyle(
+        val start: Int,
+        val endExclusive: Int,
+        val kind: InlineStyleKind,
+    )
+
     data class RichText(
         val text: String,
         val images: List<RichImage>,
+        val styles: List<RichStyle> = emptyList(),
     )
 
     private val headPattern = Regex("(?is)<head\\b.*?</head\\s*>")
@@ -33,13 +41,19 @@ internal object XhtmlText {
     private val imageAltPattern = Regex("""(?i)\balt\s*=\s*["']([^"']*)["']""")
     private val tagPattern = Regex("(?s)<[^>]+>")
     private val titlePattern = Regex("(?is)<title[^>]*>(.*?)</title\\s*>")
+    private val boldTagPattern = Regex("(?i)<(/?)b\\b[^>]*>|</?strong\\b[^>]*>")
+    private val italicTagPattern = Regex("(?i)<(/?)i\\b[^>]*>|</?em\\b[^>]*>")
     private const val IMAGE_PLACEHOLDER = '\uFFFC'
+    private const val BOLD_OPEN = '\uE000'
+    private const val BOLD_CLOSE = '\uE001'
+    private const val ITALIC_OPEN = '\uE002'
+    private const val ITALIC_CLOSE = '\uE003'
 
     fun extract(html: String): String = extractRich(html).text
 
     fun extractRich(html: String): RichText {
         val images = mutableListOf<Pair<String, String>>()
-        var text = html
+        var text = markStyles(html)
         text = imagePattern.replace(text) { match ->
             val tag = match.value
             val src = imageSrcPattern.find(tag)?.groupValues?.get(1).orEmpty()
@@ -65,16 +79,71 @@ internal object XhtmlText {
         }
         text = text.replace(Regex("\\n{3,}"), "\n\n").trim()
 
+        val clean = StringBuilder(text.length)
+        val styles = mutableListOf<RichStyle>()
+        var boldDepth = 0
+        var boldStart = -1
+        var italicDepth = 0
+        var italicStart = -1
+        for (character in text) {
+            when (character) {
+                BOLD_OPEN -> {
+                    if (boldDepth == 0) boldStart = clean.length
+                    boldDepth += 1
+                }
+                BOLD_CLOSE -> {
+                    if (boldDepth > 0) {
+                        boldDepth -= 1
+                        if (boldDepth == 0 && boldStart >= 0) {
+                            if (boldStart < clean.length) {
+                                styles.add(RichStyle(boldStart, clean.length, InlineStyleKind.BOLD))
+                            }
+                            boldStart = -1
+                        }
+                    }
+                }
+                ITALIC_OPEN -> {
+                    if (italicDepth == 0) italicStart = clean.length
+                    italicDepth += 1
+                }
+                ITALIC_CLOSE -> {
+                    if (italicDepth > 0) {
+                        italicDepth -= 1
+                        if (italicDepth == 0 && italicStart >= 0) {
+                            if (italicStart < clean.length) {
+                                styles.add(
+                                    RichStyle(italicStart, clean.length, InlineStyleKind.ITALIC),
+                                )
+                            }
+                            italicStart = -1
+                        }
+                    }
+                }
+                else -> clean.append(character)
+            }
+        }
+        val cleanText = clean.toString()
+
         val richImages = mutableListOf<RichImage>()
         var imageIndex = 0
-        text.forEachIndexed { offset, character ->
+        cleanText.forEachIndexed { offset, character ->
             if (character == IMAGE_PLACEHOLDER && imageIndex < images.size) {
                 val (src, alt) = images[imageIndex]
                 richImages.add(RichImage(src = src, alt = alt, charOffset = offset))
                 imageIndex += 1
             }
         }
-        return RichText(text = text, images = richImages)
+        return RichText(text = cleanText, images = richImages, styles = styles)
+    }
+
+    private fun markStyles(html: String): String {
+        var text = boldTagPattern.replace(html) { match ->
+            if (match.value.startsWith("</")) BOLD_CLOSE.toString() else BOLD_OPEN.toString()
+        }
+        text = italicTagPattern.replace(text) { match ->
+            if (match.value.startsWith("</")) ITALIC_CLOSE.toString() else ITALIC_OPEN.toString()
+        }
+        return text
     }
 
     fun title(html: String): String? = titlePattern.find(html)

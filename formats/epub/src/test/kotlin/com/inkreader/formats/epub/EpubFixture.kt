@@ -116,8 +116,8 @@ internal object EpubFixture {
                 """
                 <html><head><title>第一章</title></head><body>
                   <h1>第一章</h1>
-                  <p>这是&amp;第一段。</p>
-                  <p>第二段&nbsp;内容。</p>
+                  <p><b>这是</b>&amp;第一段。</p>
+                  <p><i>第二段</i>&nbsp;内容。</p>
                 </body></html>
                 """.trimIndent().toByteArray(),
             )

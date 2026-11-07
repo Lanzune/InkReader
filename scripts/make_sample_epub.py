@@ -60,8 +60,8 @@ nav = """<html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.
 chapters = {
     "chapter1.xhtml": """<html xmlns="http://www.w3.org/1999/xhtml"><head><title>第一章 起点</title></head><body>
 <h1>第一章 起点</h1>
-<p>夜航从一盏灯开始。</p>
-<p>风从窗外经过，带着一点潮湿的味道。</p>
+<p><b>夜航</b>从一盏灯开始。</p>
+<p><i>风从窗外经过</i>，带着一点潮湿的味道。</p>
 <p>她把书翻到第一页，却先看了一会儿空白。</p>
 </body></html>""",
     "chapter2.xhtml": """<html xmlns="http://www.w3.org/1999/xhtml"><head><title>第二章 风</title></head><body>

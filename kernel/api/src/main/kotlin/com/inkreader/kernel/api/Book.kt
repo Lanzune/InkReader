@@ -26,11 +26,23 @@ data class ChapterImage(
     val alt: String = "",
 )
 
+enum class InlineStyleKind {
+    BOLD,
+    ITALIC,
+}
+
+data class ChapterStyle(
+    val start: Int,
+    val endExclusive: Int,
+    val kind: InlineStyleKind,
+)
+
 data class Chapter(
     val id: String,
     val title: String,
     val text: String,
     val images: List<ChapterImage> = emptyList(),
+    val styles: List<ChapterStyle> = emptyList(),
 )
 
 data class TocEntry(

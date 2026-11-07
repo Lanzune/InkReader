@@ -6,6 +6,7 @@ import com.inkreader.kernel.api.BookReadException
 import com.inkreader.kernel.api.BookSource
 import com.inkreader.kernel.api.Chapter
 import com.inkreader.kernel.api.ChapterImage
+import com.inkreader.kernel.api.ChapterStyle
 import com.inkreader.kernel.api.FormatMatch
 import com.inkreader.kernel.api.FormatProvider
 import com.inkreader.kernel.api.LayoutKind
@@ -179,6 +180,7 @@ class EpubFormatProvider : FormatProvider {
         val text = StringBuilder()
         val toc = mutableListOf<TocEntry>()
         val chapterImages = mutableListOf<ChapterImage>()
+        val chapterStyles = mutableListOf<ChapterStyle>()
         val resources = LinkedHashMap<String, ByteArray>()
         var hasContent = false
         var chapterNumber = 0
@@ -206,6 +208,15 @@ class EpubFormatProvider : FormatProvider {
                         charOffset = offset + image.charOffset,
                         resource = path,
                         alt = image.alt,
+                    ),
+                )
+            }
+            for (style in rich.styles) {
+                chapterStyles.add(
+                    ChapterStyle(
+                        start = offset + style.start,
+                        endExclusive = offset + style.endExclusive,
+                        kind = style.kind,
                     ),
                 )
             }
@@ -238,6 +249,7 @@ class EpubFormatProvider : FormatProvider {
                     title = metadata.title,
                     text = fullText,
                     images = chapterImages,
+                    styles = chapterStyles,
                 ),
             ),
             toc = toc,

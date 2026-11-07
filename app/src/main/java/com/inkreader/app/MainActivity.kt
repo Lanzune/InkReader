@@ -5,6 +5,7 @@ import android.content.Context
 import android.content.ContextWrapper
 import android.content.Intent
 import android.content.pm.ApplicationInfo
+import android.graphics.Typeface
 import android.net.Uri
 import android.os.Bundle
 import android.text.Spannable
@@ -12,6 +13,7 @@ import android.text.SpannableStringBuilder
 import android.text.Layout
 import android.text.style.AlignmentSpan
 import android.text.style.ImageSpan
+import android.text.style.StyleSpan
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -681,9 +683,25 @@ private fun buildReaderText(
     chapter: Chapter,
     resources: Map<String, ByteArray>,
 ): CharSequence {
-    if (chapter.images.isEmpty() || resources.isEmpty()) return chapter.text
+    if (chapter.images.isEmpty() && chapter.styles.isEmpty()) return chapter.text
 
     val builder = SpannableStringBuilder(chapter.text)
+    for (style in chapter.styles) {
+        val start = style.start.coerceIn(0, builder.length)
+        val end = style.endExclusive.coerceIn(start, builder.length)
+        if (start >= end) continue
+        val typeface = when (style.kind) {
+            com.inkreader.kernel.api.InlineStyleKind.BOLD -> Typeface.BOLD
+            com.inkreader.kernel.api.InlineStyleKind.ITALIC -> Typeface.ITALIC
+        }
+        builder.setSpan(
+            StyleSpan(typeface),
+            start,
+            end,
+            Spannable.SPAN_EXCLUSIVE_EXCLUSIVE,
+        )
+    }
+    if (chapter.images.isEmpty() || resources.isEmpty()) return builder
     val metrics = context.resources.displayMetrics
     val maxWidth = (metrics.widthPixels - 48 * metrics.density).toInt().coerceAtLeast(1)
     val maxHeight = (metrics.heightPixels * 0.55f).toInt().coerceAtLeast(1)

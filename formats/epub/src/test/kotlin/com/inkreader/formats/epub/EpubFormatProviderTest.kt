@@ -33,6 +33,9 @@ class EpubFormatProviderTest {
         assertEquals("图", image.alt)
         assertEquals(1, document.resources.size)
         assertTrue(document.resources.containsKey("OEBPS/images/sample.png"))
+
+        assertTrue(document.chapters.single().styles.any { it.kind.name == "BOLD" })
+        assertTrue(document.chapters.single().styles.any { it.kind.name == "ITALIC" })
     }
 
     @Test
