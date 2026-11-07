@@ -83,6 +83,7 @@ import com.inkreader.kernel.core.ContentBookSource
 import com.inkreader.kernel.core.KernelEngine
 import com.inkreader.kernel.core.ReadingStateStore
 import com.inkreader.kernel.core.SavedReading
+import com.inkreader.plugin.quickjs.PluginManifestParser
 import com.inkreader.plugin.quickjs.PluginSnapshot
 import com.inkreader.plugin.quickjs.QuickJsPluginHost
 import com.inkreader.reader.engine.ReaderLinkSpan
@@ -121,25 +122,42 @@ private fun InkReaderApp() {
     val scope = rememberCoroutineScope()
     val readingState = remember(context) { ReadingStateStore(context) }
     val settingsStore = remember(context) { ReaderSettingsStore(context) }
+    val pluginPrefs = remember(context) {
+        context.applicationContext.getSharedPreferences("inkreader.plugin", Context.MODE_PRIVATE)
+    }
     var saved: SavedReading? by remember { mutableStateOf(readingState.load()) }
     var settings: ReaderSettings by remember { mutableStateOf(settingsStore.load()) }
     var screen: Screen by remember { mutableStateOf(Screen.Home) }
     var error: String? by remember { mutableStateOf(null) }
     var pluginSnapshot: PluginSnapshot? by remember { mutableStateOf(null) }
     var pluginError: String? by remember { mutableStateOf(null) }
+    var pluginEnabled by remember { mutableStateOf(pluginPrefs.getBoolean("enabled", true)) }
 
-    LaunchedEffect(Unit) {
+    LaunchedEffect(pluginEnabled) {
+        pluginSnapshot = null
+        pluginError = null
+        if (!pluginEnabled) return@LaunchedEffect
         val result = runCatching {
             withContext(Dispatchers.IO) {
+                val manifestJson = context.assets
+                    .open("plugins/sample-theme.manifest.json")
+                    .bufferedReader()
+                    .use { it.readText() }
+                val manifest = PluginManifestParser.parse(manifestJson)
                 val script = context.assets
                     .open("plugins/sample-theme.js")
                     .bufferedReader()
                     .use { it.readText() }
-                QuickJsPluginHost().load(script)
+                QuickJsPluginHost().load(script, manifest)
             }
         }
         result.onSuccess { pluginSnapshot = it }
             .onFailure { pluginError = it.message ?: "示例插件加载失败" }
+    }
+
+    fun setPluginEnabled(enabled: Boolean) {
+        pluginEnabled = enabled
+        pluginPrefs.edit().putBoolean("enabled", enabled).apply()
     }
 
     fun openUri(uri: Uri, encoding: String? = null, initialOffset: Int = 0) {
@@ -303,11 +321,13 @@ private fun InkReaderApp() {
             error = error,
             pluginSnapshot = pluginSnapshot,
             pluginError = pluginError,
+            pluginEnabled = pluginEnabled,
             showSample = debuggable,
             onOpen = { openDocument.launch(arrayOf("*/*")) },
             onOpenSample = { openSampleEpub() },
             onOpenPdfSample = { openSamplePdf() },
             onOpenMarkdownSample = { openSampleMarkdown() },
+            onTogglePlugin = { setPluginEnabled(!pluginEnabled) },
             onContinue = {
                 saved?.let { record ->
                     openUri(Uri.parse(record.uri), record.encoding, record.charOffset)
@@ -387,11 +407,13 @@ private fun HomeScreen(
     error: String?,
     pluginSnapshot: PluginSnapshot?,
     pluginError: String?,
+    pluginEnabled: Boolean,
     showSample: Boolean,
     onOpen: () -> Unit,
     onOpenSample: () -> Unit,
     onOpenPdfSample: () -> Unit,
     onOpenMarkdownSample: () -> Unit,
+    onTogglePlugin: () -> Unit,
     onContinue: () -> Unit,
 ) {
     Surface(modifier = Modifier.fillMaxSize()) {
@@ -403,7 +425,7 @@ private fun HomeScreen(
             horizontalAlignment = Alignment.Start,
         ) {
             Text(text = "InkReader", style = MaterialTheme.typography.headlineLarge)
-            Text(text = "M4 · TXT / EPUB / PDF / HTML / MD", style = MaterialTheme.typography.titleMedium)
+            Text(text = "M6 · 多格式阅读", style = MaterialTheme.typography.titleMedium)
             Text(
                 text = KernelEngine().versionLabel(),
                 style = MaterialTheme.typography.bodySmall,
@@ -427,33 +449,51 @@ private fun HomeScreen(
                     Text("打开内置示例 Markdown（调试）")
                 }
             }
-            when {
-                pluginSnapshot != null -> {
-                    Text(
-                        text = "插件主题：${pluginSnapshot.theme.name}",
-                        style = MaterialTheme.typography.bodyMedium,
-                    )
-                    Text(
-                        text = pluginSnapshot.commandResult,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
+            if (!pluginEnabled) {
+                Text(
+                    text = "示例插件已禁用，使用内置主题",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                TextButton(onClick = onTogglePlugin) { Text("启用示例插件") }
+            } else {
+                when {
+                    pluginSnapshot != null -> {
+                        Text(
+                            text = "插件主题：${pluginSnapshot.theme.name}",
+                            style = MaterialTheme.typography.bodyMedium,
+                        )
+                        Text(
+                            text = pluginSnapshot.manifest?.let {
+                                "${it.id} v${it.version} · ${it.capabilities.joinToString()}"
+                            } ?: "manifest 已校验",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        Text(
+                            text = pluginSnapshot.commandResult,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        TextButton(onClick = onTogglePlugin) { Text("禁用示例插件") }
+                    }
 
-                pluginError != null -> {
-                    Text(
-                        text = "示例插件加载失败：$pluginError",
-                        color = MaterialTheme.colorScheme.error,
-                        style = MaterialTheme.typography.bodySmall,
-                    )
-                }
+                    pluginError != null -> {
+                        Text(
+                            text = "示例插件加载失败：$pluginError",
+                            color = MaterialTheme.colorScheme.error,
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                        TextButton(onClick = onTogglePlugin) { Text("禁用示例插件") }
+                    }
 
-                else -> {
-                    Text(
-                        text = "正在加载 QuickJS 示例插件…",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
+                    else -> {
+                        Text(
+                            text = "正在加载 QuickJS 示例插件…",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
                 }
             }
             if (error != null) {

@@ -1,0 +1,15 @@
+{
+  "schemaVersion": 1,
+  "id": "dev.inkreader.paper",
+  "name": "Paper Theme",
+  "version": "1.0.0",
+  "entry": "sample-theme.js",
+  "api": {
+    "minHostApi": 1,
+    "targetHostApi": 1
+  },
+  "capabilities": [
+    "theme.contribute",
+    "command.contribute"
+  ]
+}

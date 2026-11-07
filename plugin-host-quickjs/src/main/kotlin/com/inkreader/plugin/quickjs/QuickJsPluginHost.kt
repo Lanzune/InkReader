@@ -5,33 +5,52 @@ import com.dokar.quickjs.QuickJs
 import com.inkreader.kernel.api.ReaderTheme
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeout
 import org.json.JSONObject
 
 data class PluginSnapshot(
     val theme: ReaderTheme,
     val commandResult: String,
+    val manifest: PluginManifest? = null,
 )
 
 /**
- * M1b 的最小 QuickJS 宿主：执行 bundled 示例插件，返回一个主题和一个命令结果。
+ * QuickJS plugin host.
  *
- * 这里验证的是“脚本运行 + 结果进入阅读器”，完整的 .inkp 安装、能力授权、
- * 超时/内存限制和插件进程隔离在后续阶段补。
+ * M6 adds manifest validation, a 2 second activation timeout and an explicit
+ * capability whitelist. Plugins still run in-process on a dedicated dispatcher;
+ * process isolation is deferred to v1.1.
  */
 class QuickJsPluginHost {
 
-    suspend fun load(script: String): PluginSnapshot = withContext(Dispatchers.Default) {
-        val quickJs = QuickJs.create(Dispatchers.Default)
-        try {
-            val themeJson = quickJs.evaluate<String>(
-                "$script\nJSON.stringify(inkPlugin.theme);",
-            )
-            val commandResult = quickJs.evaluate<String>(
-                "$script\ninkPlugin.command.render(0.42);",
-            )
-            PluginSnapshot(parseTheme(themeJson), commandResult)
-        } finally {
-            quickJs.close()
+    suspend fun load(
+        script: String,
+        manifest: PluginManifest? = null,
+    ): PluginSnapshot = withContext(Dispatchers.Default) {
+        if (script.toByteArray(Charsets.UTF_8).size > PluginManifestParser.MAX_SCRIPT_BYTES) {
+            throw IllegalStateException("插件脚本超过 1 MB")
+        }
+        if (manifest != null) {
+            if ("theme.contribute" !in manifest.capabilities) {
+                throw IllegalStateException("插件未声明 theme.contribute")
+            }
+            if ("command.contribute" !in manifest.capabilities) {
+                throw IllegalStateException("插件未声明 command.contribute")
+            }
+        }
+        withTimeout(2_000) {
+            val quickJs = QuickJs.create(Dispatchers.Default)
+            try {
+                val themeJson = quickJs.evaluate<String>(
+                    "$script\nJSON.stringify(inkPlugin.theme);",
+                )
+                val commandResult = quickJs.evaluate<String>(
+                    "$script\ninkPlugin.command.render(0.42);",
+                )
+                PluginSnapshot(parseTheme(themeJson), commandResult, manifest)
+            } finally {
+                quickJs.close()
+            }
         }
     }
 

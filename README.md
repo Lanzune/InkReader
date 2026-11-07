@@ -14,17 +14,18 @@
 
 ## 当前状态
 
-**阶段：M5 已完成，进入 M6。**
+**阶段：M6a 插件 manifest/启停已真机验证。**
 
 - M0～M2：TXT 阅读器完成，标签 `m2-txt-reader`
 - M3：EPUB 完成，标签 `m3-epub`
 - M4：PDF/HTML/Markdown 完成，标签 `m4-docs`
-- M5：翻页动画、命令面板、快照复用，标签 `m5-experience`
-- M6：插件 SDK/安全（下一步）
+- M5：翻页动画、命令面板，标签 `m5-experience`
+- M6a：manifest 校验、能力白名单、2s 超时、启停
+- M6b：`.inkp` 安装（下一步）
 - Android 16（API 36）
 - 无 `INTERNET`，16 KB 对齐，v2 签名
 
-下一步：M6 插件 manifest/权限/安全模式。
+下一步：M6b `.inkp` 安装与安全校验。
 
 ## 目录结构
 
