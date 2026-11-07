@@ -26,6 +26,7 @@ out/
 
 # Signing / secrets
 .debug/
+.release/
 *.jks
 *.keystore
 keystore.properties

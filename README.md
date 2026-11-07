@@ -14,22 +14,23 @@
 
 ## 当前状态
 
-**阶段：M7a release-test 已真机验证。**
+**阶段：M7b 正式签名已构建，尚未安装。**
 
 - M0～M2：TXT 阅读器完成，标签 `m2-txt-reader`
 - M3：EPUB 完成，标签 `m3-epub`
 - M4：PDF/HTML/Markdown 完成，标签 `m4-docs`
 - M5：翻页动画、命令面板，标签 `m5-experience`
 - M6：manifest、`.inkp` 安装、启停/卸载，标签 `m6-plugins`
-- M7a：R8 release、4.53 MB、16 KB、真机回归（测试签名）
-- M7b：正式 release 签名（待项目所有者 keystore）
+- M7a：R8 release、4.53 MB、16 KB、真机回归
+- M7b：独立 release keystore、正式签名 APK
+- M7c：数据迁移/正式验收（下一步）
 - Android 16（API 36）
-- 无 `INTERNET`，v2 签名
+- 无 `INTERNET`
 
 插件开发：`docs/plugin-dev.md`；示例：`examples/paper-theme/`。
 发布签名：`docs/runbooks/release-signing.md`。
 
-下一步：提供 release keystore 后完成 M7b/M7c。
+下一步：先备份阅读数据，再卸载 debug 版安装正式包。
 
 ## 目录结构
 
