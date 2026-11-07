@@ -1,0 +1,27 @@
+# NOTICE
+
+InkReader
+Copyright (C) 2026 InkReader contributors
+
+This project is licensed under the GNU Affero General Public License,
+version 3 only. See `LICENSE`.
+
+## Third-party components
+
+This project uses the following third-party software. Their licenses remain
+in effect; the AGPL applies to InkReader's own code.
+
+| Component | License | Use |
+|---|---|---|
+| AndroidX / Jetpack Compose / Activity / Lifecycle | Apache License 2.0 | Android UI/runtime |
+| Kotlin standard library | Apache License 2.0 | Kotlin runtime |
+| kotlinx.coroutines | Apache License 2.0 | Concurrency |
+| QuickJS via `io.github.dokar3:quickjs-kt` | MIT | JavaScript plugin runtime |
+| JUnit 4 | Eclipse Public License 1.0 | Tests only, not shipped |
+
+Upstream license texts are available in the corresponding dependency
+artifacts and project repositories. If you distribute a modified APK, keep
+this NOTICE and the third-party license notices with the distribution.
+
+No third-party book content, fonts, or images are intentionally bundled in
+this repository. Debug sample books are generated test fixtures.
