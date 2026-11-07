@@ -48,6 +48,17 @@ internal object XhtmlText {
     private val h3TagPattern = Regex("(?i)<(/?)h3\\b[^>]*>")
     private val h4TagPattern = Regex("(?i)<(/?)h[4-6]\\b[^>]*>")
     private val blockquoteTagPattern = Regex("(?i)<(/?)blockquote\\b[^>]*>")
+    private val paragraphOpenPattern = Regex("(?i)<p\\b([^>]*)>")
+    private val paragraphClosePattern = Regex("(?i)</p\\s*>")
+    private val headingOpenPattern = Regex("(?i)<h[1-6]\\b([^>]*)>")
+    private val headingClosePattern = Regex("(?i)</h[1-6]\\s*>")
+    private val alignAttributePattern = Regex("""(?i)\balign\s*=\s*["']?(center|right)""")
+    private val textAlignPattern = Regex(
+        """(?i)\btext-align\s*:\s*(center|right)""",
+    )
+    private const val ALIGN_CENTER_OPEN = '\uE010'
+    private const val ALIGN_RIGHT_OPEN = '\uE011'
+    private const val ALIGN_CLOSE = '\uE012'
     private const val IMAGE_PLACEHOLDER = '\uFFFC'
     private const val BOLD_OPEN = '\uE000'
     private const val BOLD_CLOSE = '\uE001'
@@ -66,7 +77,8 @@ internal object XhtmlText {
 
     fun extractRich(html: String): RichText {
         val images = mutableListOf<Pair<String, String>>()
-        var text = markStyles(html)
+        var text = markAlignment(html)
+        text = markStyles(text)
         text = imagePattern.replace(text) { match ->
             val tag = match.value
             val src = imageSrcPattern.find(tag)?.groupValues?.get(1).orEmpty()
@@ -106,6 +118,18 @@ internal object XhtmlText {
         var h3Start = -1
         var indentDepth = 0
         var indentStart = -1
+        var alignStart = -1
+        var alignKind: InlineStyleKind? = null
+
+        fun closeAlignment() {
+            if (alignStart >= 0 && alignStart < clean.length) {
+                alignKind?.let { kind ->
+                    styles.add(RichStyle(alignStart, clean.length, kind))
+                }
+            }
+            alignStart = -1
+            alignKind = null
+        }
         for (character in text) {
             when (character) {
                 BOLD_OPEN -> {
@@ -208,9 +232,21 @@ internal object XhtmlText {
                         }
                     }
                 }
+                ALIGN_CENTER_OPEN -> {
+                    closeAlignment()
+                    alignStart = clean.length
+                    alignKind = InlineStyleKind.ALIGN_CENTER
+                }
+                ALIGN_RIGHT_OPEN -> {
+                    closeAlignment()
+                    alignStart = clean.length
+                    alignKind = InlineStyleKind.ALIGN_RIGHT
+                }
+                ALIGN_CLOSE -> closeAlignment()
                 else -> clean.append(character)
             }
         }
+        closeAlignment()
         val cleanText = clean.toString()
 
         val richImages = mutableListOf<RichImage>()
@@ -223,6 +259,36 @@ internal object XhtmlText {
             }
         }
         return RichText(text = cleanText, images = richImages, styles = styles)
+    }
+
+    private fun markAlignment(html: String): String {
+        var text = paragraphOpenPattern.replace(html) { match ->
+            val attributes = match.groupValues[1]
+            val marker = alignmentFor(attributes)
+            if (marker == null) match.value else "$marker${match.value}"
+        }
+        text = paragraphClosePattern.replace(text) { match ->
+            "$ALIGN_CLOSE${match.value}"
+        }
+        text = headingOpenPattern.replace(text) { match ->
+            val marker = alignmentFor(match.groupValues[1])
+            if (marker == null) match.value else "$marker${match.value}"
+        }
+        text = headingClosePattern.replace(text) { match ->
+            "$ALIGN_CLOSE${match.value}"
+        }
+        return text
+    }
+
+    private fun alignmentFor(attributes: String): String? {
+        val value = alignAttributePattern.find(attributes)?.groupValues?.get(1)
+            ?: textAlignPattern.find(attributes)?.groupValues?.get(1)
+            ?: return null
+        return when (value.lowercase()) {
+            "center" -> ALIGN_CENTER_OPEN.toString()
+            "right" -> ALIGN_RIGHT_OPEN.toString()
+            else -> null
+        }
     }
 
     private fun markStyles(html: String): String {

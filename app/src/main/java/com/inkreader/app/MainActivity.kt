@@ -754,6 +754,18 @@ private fun buildReaderText(
                 end,
                 Spannable.SPAN_EXCLUSIVE_EXCLUSIVE,
             )
+            com.inkreader.kernel.api.InlineStyleKind.ALIGN_CENTER -> builder.setSpan(
+                AlignmentSpan.Standard(Layout.Alignment.ALIGN_CENTER),
+                start,
+                end,
+                Spannable.SPAN_EXCLUSIVE_EXCLUSIVE,
+            )
+            com.inkreader.kernel.api.InlineStyleKind.ALIGN_RIGHT -> builder.setSpan(
+                AlignmentSpan.Standard(Layout.Alignment.ALIGN_OPPOSITE),
+                start,
+                end,
+                Spannable.SPAN_EXCLUSIVE_EXCLUSIVE,
+            )
         }
     }
     if (chapter.images.isEmpty() || resources.isEmpty()) return builder

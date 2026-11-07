@@ -33,6 +33,8 @@ enum class InlineStyleKind {
     HEADING2,
     HEADING3,
     INDENT,
+    ALIGN_CENTER,
+    ALIGN_RIGHT,
 }
 
 data class ChapterStyle(
