@@ -4,8 +4,18 @@ import android.app.Activity
 import android.content.Context
 import android.content.ContextWrapper
 import android.content.Intent
+import android.content.pm.ApplicationInfo
+import android.graphics.Typeface
 import android.net.Uri
 import android.os.Bundle
+import android.text.Spannable
+import android.text.SpannableStringBuilder
+import android.text.Layout
+import android.text.style.AlignmentSpan
+import android.text.style.ImageSpan
+import android.text.style.LeadingMarginSpan
+import android.text.style.RelativeSizeSpan
+import android.text.style.StyleSpan
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -57,9 +67,12 @@ import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
+import com.inkreader.formats.epub.EpubFormatProvider
 import com.inkreader.formats.txt.TxtFormatProvider
 import com.inkreader.kernel.api.BookDocument
 import com.inkreader.kernel.api.BuiltInThemes
+import com.inkreader.kernel.api.Chapter
+import com.inkreader.kernel.api.ChapterImage
 import com.inkreader.kernel.api.PageInfo
 import com.inkreader.kernel.api.ReaderTheme
 import com.inkreader.kernel.core.BookOpener
@@ -69,6 +82,7 @@ import com.inkreader.kernel.core.ReadingStateStore
 import com.inkreader.kernel.core.SavedReading
 import com.inkreader.plugin.quickjs.PluginSnapshot
 import com.inkreader.plugin.quickjs.QuickJsPluginHost
+import com.inkreader.reader.engine.ReaderLinkSpan
 import com.inkreader.reader.engine.ReaderSurfaceView
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -94,6 +108,7 @@ private sealed interface Screen {
         val uri: Uri,
         val encoding: String?,
         val initialOffset: Int,
+        val persistProgress: Boolean = true,
     ) : Screen
 }
 
@@ -141,7 +156,7 @@ private fun InkReaderApp() {
                 withContext(Dispatchers.IO) {
                     val source = ContentBookSource(context, uri)
                     try {
-                        BookOpener(listOf(TxtFormatProvider())).open(source, encoding)
+                        BookOpener(listOf(TxtFormatProvider(), EpubFormatProvider())).open(source, encoding)
                     } finally {
                         source.close()
                     }
@@ -170,13 +185,49 @@ private fun InkReaderApp() {
         if (uri != null) openUri(uri)
     }
 
+    val debuggable = remember(context) {
+        context.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE != 0
+    }
+
+    fun openSampleEpub() {
+        screen = Screen.Loading
+        error = null
+        scope.launch {
+            val result = runCatching {
+                withContext(Dispatchers.IO) {
+                    val source = AssetBookSource(context.assets, "sample.epub", "示例 EPUB")
+                    try {
+                        BookOpener(listOf(TxtFormatProvider(), EpubFormatProvider())).open(source)
+                    } finally {
+                        source.close()
+                    }
+                }
+            }
+            result.onSuccess { book ->
+                screen = Screen.Reading(
+                    book = book,
+                    uri = Uri.parse("asset:///sample.epub"),
+                    encoding = null,
+                    initialOffset = 0,
+                    persistProgress = false,
+                )
+            }.onFailure { failure ->
+                val cause = failure.cause?.let { "${it.javaClass.simpleName}: ${it.message}" }
+                error = "示例 EPUB 打开失败：${failure.javaClass.simpleName}: ${failure.message ?: cause ?: ""}"
+                screen = Screen.Home
+            }
+        }
+    }
+
     when (val current = screen) {
         Screen.Home -> HomeScreen(
             saved = saved,
             error = error,
             pluginSnapshot = pluginSnapshot,
             pluginError = pluginError,
+            showSample = debuggable,
             onOpen = { openDocument.launch(arrayOf("*/*")) },
+            onOpenSample = { openSampleEpub() },
             onContinue = {
                 saved?.let { record ->
                     openUri(Uri.parse(record.uri), record.encoding, record.charOffset)
@@ -200,14 +251,16 @@ private fun InkReaderApp() {
                 openUri(current.uri, encoding, offset)
             },
             onProgress = { offset ->
-                val record = SavedReading(
-                    uri = current.uri.toString(),
-                    title = current.book.metadata.title,
-                    charOffset = offset,
-                    encoding = current.encoding,
-                )
-                readingState.save(record.uri, record.title, record.charOffset, record.encoding)
-                saved = record
+                if (current.persistProgress) {
+                    val record = SavedReading(
+                        uri = current.uri.toString(),
+                        title = current.book.metadata.title,
+                        charOffset = offset,
+                        encoding = current.encoding,
+                    )
+                    readingState.save(record.uri, record.title, record.charOffset, record.encoding)
+                    saved = record
+                }
             },
             onBack = { screen = Screen.Home },
         )
@@ -220,7 +273,9 @@ private fun HomeScreen(
     error: String?,
     pluginSnapshot: PluginSnapshot?,
     pluginError: String?,
+    showSample: Boolean,
     onOpen: () -> Unit,
+    onOpenSample: () -> Unit,
     onContinue: () -> Unit,
 ) {
     Surface(modifier = Modifier.fillMaxSize()) {
@@ -232,7 +287,7 @@ private fun HomeScreen(
             horizontalAlignment = Alignment.Start,
         ) {
             Text(text = "InkReader", style = MaterialTheme.typography.headlineLarge)
-            Text(text = "M2 · TXT 阅读与进度", style = MaterialTheme.typography.titleMedium)
+            Text(text = "M3 · TXT / EPUB", style = MaterialTheme.typography.titleMedium)
             Text(
                 text = KernelEngine().versionLabel(),
                 style = MaterialTheme.typography.bodySmall,
@@ -243,7 +298,12 @@ private fun HomeScreen(
                 }
             }
             OutlinedButton(onClick = onOpen) {
-                Text(if (saved == null) "打开本地 TXT" else "打开另一本 TXT")
+                Text(if (saved == null) "打开本地书籍" else "打开另一本")
+            }
+            if (showSample) {
+                TextButton(onClick = onOpenSample) {
+                    Text("打开内置示例 EPUB（调试）")
+                }
             }
             when {
                 pluginSnapshot != null -> {
@@ -282,7 +342,7 @@ private fun HomeScreen(
                 )
             }
             Text(
-                text = "已支持 UTF-8/GB18030/Big5/UTF-16 自动识别；最近阅读和字符位置会保存。",
+                text = "支持 TXT/EPUB；最近阅读和字符位置会保存。",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -321,11 +381,16 @@ private fun ReaderScreen(
     onBack: () -> Unit,
 ) {
     val chapter = book.chapters.first()
+    val context = LocalContext.current
+    val readerText = remember(chapter, book.resources) {
+        buildReaderText(context, chapter, book.resources)
+    }
     var pageInfo by remember { mutableStateOf(PageInfo(0, 1)) }
     var controlsVisible by remember { mutableStateOf(true) }
     var tocVisible by remember { mutableStateOf(false) }
     var settingsVisible by remember { mutableStateOf(false) }
     var readerView by remember { mutableStateOf<ReaderSurfaceView?>(null) }
+    var linkHistory by remember { mutableStateOf<List<Int>>(emptyList()) }
 
     val systemDark = isSystemInDarkTheme()
     val theme = when (settings.themeMode) {
@@ -374,6 +439,12 @@ private fun ReaderScreen(
     }
 
     fun leaveReader() {
+        if (linkHistory.isNotEmpty()) {
+            val target = linkHistory.last()
+            linkHistory = linkHistory.dropLast(1)
+            readerView?.goToCharOffset(target)
+            return
+        }
         onProgress(readerView?.currentCharOffset() ?: pageInfo.charOffset)
         applyWindowBrightness(activity, originalBrightness)
         insetsController?.show(WindowInsetsCompat.Type.navigationBars())
@@ -394,7 +465,11 @@ private fun ReaderScreen(
                         onProgress(info.charOffset)
                     }
                     onCenterTap = { controlsVisible = !controlsVisible }
-                    setContent(chapter.text, theme, initialCharOffset)
+                    onLinkTap = { target ->
+                        linkHistory = linkHistory + currentCharOffset()
+                        goToCharOffset(target)
+                    }
+                    setContent(readerText, theme, initialCharOffset)
                     readerView = this
                 }
             },
@@ -471,6 +546,7 @@ private fun ReaderScreen(
         ReaderSettingsDialog(
             settings = settings,
             encoding = encoding,
+            showEncoding = book.formatId == "txt",
             onDismiss = { settingsVisible = false },
             onSettingsChange = onSettingsChange,
             onEncodingChange = { newEncoding ->
@@ -485,6 +561,7 @@ private fun ReaderScreen(
 private fun ReaderSettingsDialog(
     settings: ReaderSettings,
     encoding: String?,
+    showEncoding: Boolean,
     onDismiss: () -> Unit,
     onSettingsChange: (ReaderSettings) -> Unit,
     onEncodingChange: (String?) -> Unit,
@@ -576,25 +653,27 @@ private fun ReaderSettingsDialog(
                     Text("亮度跟随系统")
                 }
 
-                Text("编码：${encoding ?: "自动"}", style = MaterialTheme.typography.labelLarge)
-                Box {
-                    TextButton(onClick = { encodingMenuExpanded = true }) {
-                        Text("切换编码")
-                    }
-                    DropdownMenu(
-                        expanded = encodingMenuExpanded,
-                        onDismissRequest = { encodingMenuExpanded = false },
-                    ) {
-                        listOf<String?>(null, "UTF-8", "GB18030", "Big5", "UTF-16LE", "UTF-16BE")
-                            .forEach { option ->
-                                DropdownMenuItem(
-                                    text = { Text(option ?: "自动") },
-                                    onClick = {
-                                        encodingMenuExpanded = false
-                                        onEncodingChange(option)
-                                    },
-                                )
-                            }
+                if (showEncoding) {
+                    Text("编码：${encoding ?: "自动"}", style = MaterialTheme.typography.labelLarge)
+                    Box {
+                        TextButton(onClick = { encodingMenuExpanded = true }) {
+                            Text("切换编码")
+                        }
+                        DropdownMenu(
+                            expanded = encodingMenuExpanded,
+                            onDismissRequest = { encodingMenuExpanded = false },
+                        ) {
+                            listOf<String?>(null, "UTF-8", "GB18030", "Big5", "UTF-16LE", "UTF-16BE")
+                                .forEach { option ->
+                                    DropdownMenuItem(
+                                        text = { Text(option ?: "自动") },
+                                        onClick = {
+                                            encodingMenuExpanded = false
+                                            onEncodingChange(option)
+                                        },
+                                    )
+                                }
+                        }
                     }
                 }
             }
@@ -612,6 +691,148 @@ private fun applyWindowBrightness(activity: Activity?, value: Float?) {
     val params = window.attributes
     params.screenBrightness = value?.coerceIn(0.01f, 1f) ?: -1f
     window.attributes = params
+}
+
+private fun buildReaderText(
+    context: Context,
+    chapter: Chapter,
+    resources: Map<String, ByteArray>,
+): CharSequence {
+    if (chapter.images.isEmpty() && chapter.styles.isEmpty() && chapter.links.isEmpty()) {
+        return chapter.text
+    }
+
+    val builder = SpannableStringBuilder(chapter.text)
+    val indentPx = (24 * context.resources.displayMetrics.density).toInt()
+    for (style in chapter.styles) {
+        val start = style.start.coerceIn(0, builder.length)
+        val end = style.endExclusive.coerceIn(start, builder.length)
+        if (start >= end) continue
+        when (style.kind) {
+            com.inkreader.kernel.api.InlineStyleKind.BOLD -> builder.setSpan(
+                StyleSpan(Typeface.BOLD),
+                start,
+                end,
+                Spannable.SPAN_EXCLUSIVE_EXCLUSIVE,
+            )
+            com.inkreader.kernel.api.InlineStyleKind.ITALIC -> builder.setSpan(
+                StyleSpan(Typeface.ITALIC),
+                start,
+                end,
+                Spannable.SPAN_EXCLUSIVE_EXCLUSIVE,
+            )
+            com.inkreader.kernel.api.InlineStyleKind.HEADING1 -> {
+                builder.setSpan(
+                    RelativeSizeSpan(1.45f),
+                    start,
+                    end,
+                    Spannable.SPAN_EXCLUSIVE_EXCLUSIVE,
+                )
+                builder.setSpan(
+                    StyleSpan(Typeface.BOLD),
+                    start,
+                    end,
+                    Spannable.SPAN_EXCLUSIVE_EXCLUSIVE,
+                )
+            }
+            com.inkreader.kernel.api.InlineStyleKind.HEADING2 -> {
+                builder.setSpan(
+                    RelativeSizeSpan(1.28f),
+                    start,
+                    end,
+                    Spannable.SPAN_EXCLUSIVE_EXCLUSIVE,
+                )
+                builder.setSpan(
+                    StyleSpan(Typeface.BOLD),
+                    start,
+                    end,
+                    Spannable.SPAN_EXCLUSIVE_EXCLUSIVE,
+                )
+            }
+            com.inkreader.kernel.api.InlineStyleKind.HEADING3 -> {
+                builder.setSpan(
+                    RelativeSizeSpan(1.15f),
+                    start,
+                    end,
+                    Spannable.SPAN_EXCLUSIVE_EXCLUSIVE,
+                )
+                builder.setSpan(
+                    StyleSpan(Typeface.BOLD),
+                    start,
+                    end,
+                    Spannable.SPAN_EXCLUSIVE_EXCLUSIVE,
+                )
+            }
+            com.inkreader.kernel.api.InlineStyleKind.INDENT -> builder.setSpan(
+                LeadingMarginSpan.Standard(indentPx),
+                start,
+                end,
+                Spannable.SPAN_EXCLUSIVE_EXCLUSIVE,
+            )
+            com.inkreader.kernel.api.InlineStyleKind.ALIGN_CENTER -> builder.setSpan(
+                AlignmentSpan.Standard(Layout.Alignment.ALIGN_CENTER),
+                start,
+                end,
+                Spannable.SPAN_EXCLUSIVE_EXCLUSIVE,
+            )
+            com.inkreader.kernel.api.InlineStyleKind.ALIGN_RIGHT -> builder.setSpan(
+                AlignmentSpan.Standard(Layout.Alignment.ALIGN_OPPOSITE),
+                start,
+                end,
+                Spannable.SPAN_EXCLUSIVE_EXCLUSIVE,
+            )
+            com.inkreader.kernel.api.InlineStyleKind.FIRST_LINE_INDENT -> builder.setSpan(
+                LeadingMarginSpan.Standard(indentPx, 0),
+                start,
+                end,
+                Spannable.SPAN_EXCLUSIVE_EXCLUSIVE,
+            )
+        }
+    }
+    for (link in chapter.links) {
+        val start = link.start.coerceIn(0, builder.length)
+        val end = link.endExclusive.coerceIn(start, builder.length)
+        if (start >= end || link.targetOffset < 0) continue
+        builder.setSpan(
+            ReaderLinkSpan(link.targetOffset),
+            start,
+            end,
+            Spannable.SPAN_EXCLUSIVE_EXCLUSIVE,
+        )
+    }
+    if (chapter.images.isEmpty() || resources.isEmpty()) return builder
+    val metrics = context.resources.displayMetrics
+    val maxWidth = (metrics.widthPixels - 48 * metrics.density).toInt().coerceAtLeast(1)
+    val maxHeight = (metrics.heightPixels * 0.55f).toInt().coerceAtLeast(1)
+
+    chapter.images.sortedByDescending { it.charOffset }.forEach { image ->
+        if (image.charOffset !in 0 until builder.length) return@forEach
+        if (builder[image.charOffset] != '\uFFFC') return@forEach
+        val bitmapBytes = resources[image.resource]
+        val drawable = bitmapBytes?.let { LazyEpubDrawable(it, maxWidth, maxHeight) }
+        if (drawable == null || !drawable.isValid) {
+            builder.replace(
+                image.charOffset,
+                image.charOffset + 1,
+                image.alt.ifBlank { "［图片］" },
+            )
+            return@forEach
+        }
+        drawable.setBounds(0, 0, drawable.intrinsicWidth, drawable.intrinsicHeight)
+        builder.setSpan(
+            ImageSpan(drawable, ImageSpan.ALIGN_BOTTOM),
+            image.charOffset,
+            image.charOffset + 1,
+            Spannable.SPAN_EXCLUSIVE_EXCLUSIVE,
+        )
+        builder.setSpan(
+            AlignmentSpan.Standard(Layout.Alignment.ALIGN_CENTER),
+            image.charOffset,
+            image.charOffset + 1,
+            Spannable.SPAN_EXCLUSIVE_EXCLUSIVE,
+        )
+    }
+    return builder
 }
 
 private tailrec fun Context.findActivity(): Activity? = when (this) {
