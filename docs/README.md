@@ -1,8 +1,10 @@
 # InkReader 文档索引
 
-> 当前阶段：**M6b — `.inkp` 安装已真机验证**
+> 当前阶段：**M6 已完成，标签 `m6-plugins`**
 >
 > 内部代号：`InkReader`。正式名称、包名和 GitHub 仓库地址待定，不影响当前开发。
+>
+> 插件开发：[plugin-dev](plugin-dev.md)；示例：[examples/paper-theme](../examples/paper-theme/)。
 
 ## 先读什么
 
