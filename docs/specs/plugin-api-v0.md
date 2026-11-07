@@ -1,79 +1,102 @@
-# 插件 API v0（草案）
+# 插件 API v0
 
-> 状态：Draft  
-> 适用：M1 垂直切片  
-> 目标：先让主题/命令两类插件跑通，再扩展面板、设置和格式贡献。
+> 状态：M6 基线已实现
+> 实际开发说明：`docs/plugin-dev.md`
+> 示例：`examples/paper-theme/`
 
 ## 1. 包格式
 
 ```text
-my-plugin.inkp
+my-plugin.inkp        # ZIP
 ├── manifest.json
 ├── main.js
-└── assets/
+└── assets/           # 可选，当前只校验不加载
 ```
 
-`.inkp` 是 ZIP；不允许 `.so`、`.dex`、`.jar`，不允许路径穿越和符号链接。
+不允许 `.dex`、`.jar`、`.so`、`.apk`，不允许路径穿越。
 
 ## 2. manifest
 
 ```json
 {
   "schemaVersion": 1,
-  "id": "dev.example.papertheme",
-  "name": "Paper Theme",
+  "id": "dev.inkreader.example.paper",
+  "name": "Example Paper",
   "version": "1.0.0",
   "entry": "main.js",
   "api": { "minHostApi": 1, "targetHostApi": 1 },
-  "capabilities": [
-    "reader.state.read",
-    "theme.contribute",
-    "command.contribute"
-  ]
+  "capabilities": ["theme.contribute", "command.contribute"]
 }
 ```
 
-必填：`schemaVersion`、`id`、`name`、`version`、`entry`、`api`。  
-未知主版本、缺少能力、非法 ID/路径直接拒绝。
+必填：`schemaVersion`、`id`、`name`、`version`、`entry`、`api`、`capabilities`。
 
-## 3. JS 入口
+校验：
+
+- `schemaVersion = 1`
+- `id` 匹配 `[a-z][a-z0-9._-]{1,80}`
+- `entry` 为包内 `.js`，无路径穿越
+- `api` 两项均为 1
+- 能力非空且在白名单内
+- 当前宿主要求同时声明 theme/command 能力
+
+## 3. 当前 JS 契约
+
+宿主执行脚本后读取全局 `inkPlugin`：
 
 ```javascript
-export function activate(ink) {
-  ink.themes.register({
-    id: "paper",
-    name: "Paper",
-    light: { background: "#FAF7F0", text: "#2A2A2A" },
-    dark: { background: "#121212", text: "#C9C9C9" }
-  });
-
-  ink.commands.register({
-    id: "paper.showProgress",
-    title: "显示阅读进度",
-    run: async () => {
-      const state = await ink.reader.getState();
-      ink.ui.setBadge(`${Math.round(state.progress * 100)}%`);
+var inkPlugin = {
+    id: "dev.inkreader.example.paper",
+    theme: {
+        id: "example.paper",
+        name: "Example Paper",
+        background: "#F4EBDD",
+        foreground: "#332B24",
+        accent: "#7A5230",
+        dark: false
+    },
+    command: {
+        title: "显示阅读进度",
+        render: function (progress) {
+            return "示例插件进度：" + Math.round(progress * 100) + "%";
+        }
     }
-  });
-}
+};
 ```
 
-可选 `deactivate()`。不允许顶层无限循环；激活有 2 秒上限。
+宿主调用 `JSON.stringify(inkPlugin.theme)` 和 `inkPlugin.command.render(0.42)`。
 
-## 4. v0 能力
+> `progress` 当前固定 0.42，仅用于验证链路；真实阅读状态 API 尚未接入。
 
-| 能力 | 作用 | 备注 |
+## 4. 能力
+
+| 能力 | 状态 | 说明 |
 |---|---|---|
-| `reader.state.read` | 书籍元数据、进度、当前主题 | 只读 |
-| `theme.contribute` | 注册明/暗主题 | 不直接绘制 |
-| `command.contribute` | 注册命令 | 命令有超时 |
-| `settings.readwrite` | 插件设置 | 配额 5 MB |
-| `storage.plugin` | 插件私有键值/文件 | 不能访问书籍文件 |
-| `log.write` | 插件日志 | 环形缓冲 |
+| `theme.contribute` | ✅ | 主题 |
+| `command.contribute` | ✅ | 命令结果文本 |
+| `reader.state.read` | ⏳ | 预留 |
+| `settings.readwrite` | ⏳ | 预留 |
+| `storage.plugin` | ⏳ | 预留 |
+| `log.write` | ⏳ | 预留 |
 
-v0 **不提供**：网络、Android API、任意文件、Intent、自定义 View/Canvas、页面渲染、格式解析。
+## 5. 限制
 
-## 5. 宿主 API 形状
+| 项 | 值 |
+|---|---|
+| 包总解压 | 5 MB |
+| 单 JS | 1 MB |
+| ZIP 条目 | 200 |
+| 激活 | 2 s |
+| 私有存储 | 5 MB（规划） |
+| 已安装插件 | 1 |
+
+## 6. 安全边界
+
+QuickJS 沙箱 + manifest 白名单，不是绝对安全边界。当前插件与主应用同进程，2 秒超时为协程级；v1.1 迁移独立进程。安装即信任，没有签名校验。
+
+v0 不提供网络、Android API、任意文件、Intent、自定义 View/Canvas、页面渲染、格式解析。
+
+## 7. 后续 API
 
 ```text
 ink.themes.register(theme)
@@ -85,35 +108,4 @@ ink.log.info/warn/error(message)
 ink.events.on("page.changed", handler)
 ```
 
-所有调用异步或短时同步；不允许同步等待 UI。
-
-## 6. 生命周期
-
-```text
-安装校验 → 用户授权 → 私有目录安装 → 激活 → 注册贡献
-→ 运行 → 异常/超时 → 禁用 → 安全模式 → 卸载
-```
-
-## 7. 版本与兼容
-
-- `api.minHostApi` / `targetHostApi`：主版本不匹配拒绝激活。
-- 次版本只增不改；未知能力拒绝。
-- 公开 API 至少保留两个次版本的弃用期。
-- 每个 API 版本至少有一个契约测试插件。
-
-## 8. 限额
-
-| 项 | 值 |
-|---|---|
-| 包总大小 | 5 MB |
-| 单 JS | 1 MB |
-| 运行时内存 | 16 MB |
-| 激活 | 2 s |
-| UI 钩子 | 50 ms |
-| 用户命令 | 2 s |
-| 事件频率 | 100 ms 合并 |
-| 私有存储 | 5 MB |
-
-## 9. 安全声明
-
-QuickJS 是可靠性和误操作边界，不是绝对安全边界。v0 在专用线程运行；v1.1 迁移独立进程。用户只应安装可信插件；卸载时删除插件私有数据。
+以上为 v0 草案的后续方向，尚未实现。

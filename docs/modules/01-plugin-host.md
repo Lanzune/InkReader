@@ -1,16 +1,23 @@
 # 模块 01：QuickJS 插件宿主
 
 **代码：** `plugin-host-quickjs`
-**阶段：** M6b
-**状态：** manifest 校验、启停、`.inkp` 安装/卸载已真机验证
+**阶段：** M6c
+**状态：** manifest、启停、`.inkp` 安装/卸载已真机验证；文档已补
 
-## 当前实现（M1）
+## 当前实现（M6）
 
 - 依赖 `io.github.dokar3:quickjs-kt:1.0.15`
-- 从 APK assets 加载 `sample-theme.js`
-- 执行脚本，读取一个主题和一个命令结果
-- 失败不阻塞应用：首页显示插件错误，内置阅读仍可用
-- QuickJS 在应用进程内运行；独立进程、`.inkp` 安装、权限/配额在 M6/v1.1
+- `manifest.json` 校验：id/entry/api/能力
+- 能力白名单：theme/command 已生效，reader/settings/storage/log 预留
+- `.inkp` 导入：
+  - ZIP 5 MB、脚本 1 MB、条目 200
+  - 拒绝路径穿越/DEX/JAR/SO/APK
+  - 安装到 `files/plugins/<id>/`
+- 2 秒激活超时
+- 启停持久化；卸载回退内置示例
+- 当前只支持一个已安装插件
+- QuickJS 在应用进程内运行；独立进程在 v1.1
+- 实际 JS 契约见 `docs/plugin-dev.md`
 
 1.0.16 的 AAR metadata 要求 compileSdk 37 + AGP 9.1；当前项目使用 compileSdk 36 + AGP 8.13.2，因此暂锁 1.0.15。工具链升级后再评估。
 
@@ -21,11 +28,11 @@
 ## 首版支持
 
 - `.inkp` 包：`manifest.json` + `main.js` + 资源
-- 主题、命令、面板、设置、TXT 章节规则
-- 能力白名单和用户授权
-- 单插件独立运行时
-- 超时、内存、存储、日志上限
-- 禁用/安全模式/卸载
+- 主题、命令（当前为主题 + 命令结果）
+- 能力白名单（主题/命令生效，其余预留）
+- 单插件运行时
+- 超时、包/脚本/条目限制
+- 禁用/卸载
 
 ## 不支持
 

@@ -14,19 +14,20 @@
 
 ## 当前状态
 
-**阶段：M6b `.inkp` 安装已真机验证。**
+**阶段：M6 插件 SDK 已完成，进入 M7。**
 
 - M0～M2：TXT 阅读器完成，标签 `m2-txt-reader`
 - M3：EPUB 完成，标签 `m3-epub`
 - M4：PDF/HTML/Markdown 完成，标签 `m4-docs`
 - M5：翻页动画、命令面板，标签 `m5-experience`
-- M6a：manifest 校验、能力白名单、2s 超时、启停
-- M6b：`.inkp` 导入、私有目录安装、卸载
-- M6c：插件文档/合并（下一步）
+- M6：manifest、`.inkp` 安装、启停/卸载，标签 `m6-plugins`
+- M7：签名/体积/16 KB/发布验收（下一步）
 - Android 16（API 36）
 - 无 `INTERNET`，16 KB 对齐，v2 签名
 
-下一步：M6c 插件文档，随后合并 M6。
+插件开发：`docs/plugin-dev.md`；示例：`examples/paper-theme/`。
+
+下一步：M7 发布准备。
 
 ## 目录结构
 
