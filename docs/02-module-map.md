@@ -12,7 +12,7 @@
 | TXT 格式 | `formats/txt` | [03-format-txt](modules/03-format-txt.md) | M1 | 内核 API | M1 最小版已实现 |
 | EPUB 格式 | `formats/epub` | [04-format-epub](modules/04-format-epub.md) | M3 | 内核 API、阅读引擎 | 待开始 |
 | PDF 格式 | `formats/pdf` | [05-format-pdf](modules/05-format-pdf.md) | M4 | 内核 API | M4a 已实现 |
-| HTML / Markdown | `formats/htmlmd` | [06-format-html-md](modules/06-format-html-md.md) | M4 | 内核 API | M4b 文本基线已实现 |
+| HTML / Markdown | `formats/htmlmd` | [06-format-html-md](modules/06-format-html-md.md) | M4 | 内核 API | M4c 已实现 |
 | UI 壳层 | `app` | [07-ui-shell](modules/07-ui-shell.md) | M1 | 内核 API | M1 已实现，等待真机 |
 | 存储、缓存与隐私 | `kernel/core`, `docs` | [08-storage-privacy](modules/08-storage-privacy.md) | M1 | 内核 API | M1 仅 SAF 读取；进度/缓存在 M2 |
 | 插件 SDK 与示例 | `sdk`, `plugin-host-quickjs` | 01-plugin-host、[plugin-api-v0](specs/plugin-api-v0.md) | M1/M6 | 插件宿主 | 示例脚本已接；SDK 待 M6 |

@@ -15,6 +15,7 @@ class HtmlMarkdownFormatProviderTest {
             # 第一章
 
             这是 **粗体** 和 *斜体* 以及 [链接](https://example.com) 和 `代码`。
+            还有 [内部链接](#第二节)。
 
             ## 第二节
 
@@ -31,19 +32,22 @@ class HtmlMarkdownFormatProviderTest {
         assertTrue(document.chapters.single().styles.any { it.kind.name == "HEADING1" })
         assertTrue(document.chapters.single().styles.any { it.kind.name == "BOLD" })
         assertTrue(document.chapters.single().styles.any { it.kind.name == "ITALIC" })
+        val link = document.chapters.single().links.single()
+        assertTrue(link.targetOffset > link.start)
     }
 
     @Test
     fun stripsHtmlScriptsAndDecodesEntities() {
         val html = """
             <html><head><style>p { color:red }</style></head>
-            <body><script>alert(1)</script><p>A &amp; B</p><p>C</p></body></html>
+            <body><h1>标题</h1><script>alert(1)</script><p>A &amp; B</p><p>C</p></body></html>
         """.trimIndent()
         val source = FakeSource("page.html", "text/html", html.toByteArray())
         val document = provider.open(source, OpenContext(source.displayName, source.mimeType))
 
         assertEquals("html", document.formatId)
-        assertEquals("A & B\n\nC", document.chapters.single().text)
+        assertEquals("标题", document.toc.single().title)
+        assertTrue(document.chapters.single().text.contains("A & B\n\nC"))
         assertTrue(!document.chapters.single().text.contains("alert"))
     }
 

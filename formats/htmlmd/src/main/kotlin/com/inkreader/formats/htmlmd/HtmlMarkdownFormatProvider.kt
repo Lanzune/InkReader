@@ -60,6 +60,7 @@ class HtmlMarkdownFormatProvider : FormatProvider {
                     title = title,
                     text = rendered.text,
                     styles = rendered.styles,
+                    links = rendered.links,
                 ),
             ),
             toc = rendered.toc,
@@ -71,11 +72,12 @@ private data class RenderedText(
     val text: String,
     val toc: List<TocEntry> = emptyList(),
     val styles: List<ChapterStyle> = emptyList(),
+    val links: List<com.inkreader.kernel.api.ChapterLink> = emptyList(),
 )
 
 private object MarkdownText {
     private val headingPattern = Regex("""^(#{1,6})\s+(.+?)\s*#*\s*$""")
-    private val linkPattern = Regex("""!?\[([^\]]*)]\([^)]*\)""")
+    private val linkPattern = Regex("""!?\[([^\]]*)]\(([^)]*)\)""")
     private val inlineCodePattern = Regex("`([^`]*)`")
     private val boldPattern = Regex("""(\*\*|__)(.+?)\1""")
     private val italicPattern = Regex("""(\*|_)(.+?)\1""")
@@ -83,16 +85,33 @@ private object MarkdownText {
     private const val BOLD_CLOSE = '\uE101'
     private const val ITALIC_OPEN = '\uE102'
     private const val ITALIC_CLOSE = '\uE103'
+    private const val LINK_OPEN = '\uE104'
+    private const val LINK_CLOSE = '\uE105'
+
+    private data class InlineLink(
+        val start: Int,
+        val endExclusive: Int,
+        val target: String,
+    )
 
     private data class InlineText(
         val text: String,
         val styles: List<ChapterStyle> = emptyList(),
+        val links: List<InlineLink> = emptyList(),
+    )
+
+    private data class PendingLink(
+        val start: Int,
+        val endExclusive: Int,
+        val target: String,
     )
 
     fun render(source: String): RenderedText {
         val builder = StringBuilder()
         val toc = mutableListOf<TocEntry>()
         val styles = mutableListOf<ChapterStyle>()
+        val anchors = LinkedHashMap<String, Int>()
+        val pendingLinks = mutableListOf<PendingLink>()
         var inCode = false
 
         source.replace("\r\n", "\n").replace('\r', '\n').lines().forEach { raw ->
@@ -134,6 +153,7 @@ private object MarkdownText {
                     )
                 }
                 if (level <= 3) toc.add(TocEntry(inline.text, start))
+                anchors[inline.text.trim()] = start
                 builder.append("\n\n")
                 return@forEach
             }
@@ -156,11 +176,28 @@ private object MarkdownText {
                         ),
                     )
                 }
+                inline.links.forEach { link ->
+                    pendingLinks.add(
+                        PendingLink(
+                            start = start + link.start,
+                            endExclusive = start + link.endExclusive,
+                            target = link.target,
+                        ),
+                    )
+                }
             }
         }
 
         val text = builder.toString().replace(Regex("\\n{3,}"), "\n\n").trim()
-        return RenderedText(text, toc, styles)
+        val links = pendingLinks.mapNotNull { pending ->
+            val targetOffset = anchors[pending.target] ?: return@mapNotNull null
+            com.inkreader.kernel.api.ChapterLink(
+                start = pending.start,
+                endExclusive = pending.endExclusive,
+                targetOffset = targetOffset,
+            )
+        }
+        return RenderedText(text, toc, styles, links)
     }
 
     private fun appendParagraph(builder: StringBuilder, text: String): Int {
@@ -175,7 +212,8 @@ private object MarkdownText {
     }
 
     private fun parseInline(value: String): InlineText {
-        var text = imageOrLink(value)
+        val linkTargets = mutableListOf<String>()
+        var text = imageOrLink(value, linkTargets)
         text = inlineCodePattern.replace(text, "$1")
 
         text = boldPattern.replace(text) { match ->
@@ -187,10 +225,14 @@ private object MarkdownText {
 
         val clean = StringBuilder(text.length)
         val styles = mutableListOf<ChapterStyle>()
+        val links = mutableListOf<InlineLink>()
         var boldDepth = 0
         var boldStart = -1
         var italicDepth = 0
         var italicStart = -1
+        var linkIndex = 0
+        var linkStart = -1
+        var linkTarget: String? = null
         for (character in text) {
             when (character) {
                 BOLD_OPEN -> {
@@ -231,17 +273,43 @@ private object MarkdownText {
                         }
                     }
                 }
+                LINK_OPEN -> {
+                    if (linkIndex < linkTargets.size) {
+                        linkStart = clean.length
+                        linkTarget = linkTargets[linkIndex]
+                        linkIndex += 1
+                    }
+                }
+                LINK_CLOSE -> {
+                    val start = linkStart
+                    val target = linkTarget
+                    if (start >= 0 && target != null && start < clean.length) {
+                        links.add(InlineLink(start, clean.length, target))
+                    }
+                    linkStart = -1
+                    linkTarget = null
+                }
                 else -> clean.append(character)
             }
         }
         return InlineText(
             text = decodeEntities(clean.toString()).replace(Regex("[\\t ]+"), " ").trim(),
             styles = styles,
+            links = links,
         )
     }
 
-    private fun imageOrLink(value: String): String =
-        linkPattern.replace(value) { match -> match.groupValues[1] }
+    private fun imageOrLink(value: String, targets: MutableList<String>): String =
+        linkPattern.replace(value) { match ->
+            val label = match.groupValues[1]
+            val target = match.groupValues[2].trim()
+            if (target.startsWith("#") && target.length > 1) {
+                targets.add(target.substring(1))
+                "$LINK_OPEN$label$LINK_CLOSE"
+            } else {
+                label
+            }
+        }
 
     private fun decodeEntities(value: String): String = value
         .replace("&amp;", "&")
@@ -262,9 +330,44 @@ private object HtmlText {
     private val blockEndPattern = Regex(
         "(?i)</(p|div|h[1-6]|li|blockquote|tr|section|article|header|footer|pre)\\s*>",
     )
+    private val headingPattern = Regex("(?is)<h([1-6])\\b[^>]*>(.*?)</h\\1\\s*>")
     private val tagPattern = Regex("(?s)<[^>]+>")
 
     fun render(source: String): RenderedText {
+        val builder = StringBuilder()
+        val toc = mutableListOf<TocEntry>()
+        val styles = mutableListOf<ChapterStyle>()
+        var cursor = 0
+        for (heading in headingPattern.findAll(source)) {
+            appendHtml(builder, source.substring(cursor, heading.range.first))
+            val level = heading.groupValues[1].toIntOrNull()?.coerceAtMost(3) ?: 3
+            val title = inlineText(heading.groupValues[2])
+            if (title.isNotBlank()) {
+                if (builder.isNotEmpty() && !builder.endsWith("\n\n")) builder.append("\n\n")
+                val start = builder.length
+                builder.append(title)
+                styles.add(
+                    ChapterStyle(
+                        start = start,
+                        endExclusive = builder.length,
+                        kind = when (level) {
+                            1 -> InlineStyleKind.HEADING1
+                            2 -> InlineStyleKind.HEADING2
+                            else -> InlineStyleKind.HEADING3
+                        },
+                    ),
+                )
+                if (level <= 3) toc.add(TocEntry(title, start))
+                builder.append("\n\n")
+            }
+            cursor = heading.range.last + 1
+        }
+        appendHtml(builder, source.substring(cursor))
+        val text = builder.toString().replace(Regex("\\n{3,}"), "\n\n").trim()
+        return RenderedText(text, toc, styles)
+    }
+
+    private fun appendHtml(builder: StringBuilder, source: String) {
         var text = source
         text = headPattern.replace(text, " ")
         text = hiddenPattern.replace(text, " ")
@@ -272,12 +375,21 @@ private object HtmlText {
         text = breakPattern.replace(text, "\n")
         text = blockEndPattern.replace(text, "\n\n")
         text = tagPattern.replace(text, "")
-        text = decodeEntities(text)
+        text = cleanup(text)
+        if (text.isBlank()) return
+        if (builder.isNotEmpty() && !builder.endsWith("\n\n")) builder.append("\n\n")
+        builder.append(text)
+    }
+
+    private fun inlineText(value: String): String =
+        cleanup(tagPattern.replace(value, " "))
+
+    private fun cleanup(value: String): String {
+        var text = decodeEntities(value)
         text = text.replace('\u00A0', ' ')
         text = text.replace("\r\n", "\n").replace('\r', '\n')
         text = text.lines().joinToString("\n") { it.replace(Regex("[\\t ]+"), " ").trim() }
-        text = text.replace(Regex("\\n{3,}"), "\n\n").trim()
-        return RenderedText(text)
+        return text.replace(Regex("\\n{3,}"), "\n\n").trim()
     }
 
     private fun decodeEntities(value: String): String = value
