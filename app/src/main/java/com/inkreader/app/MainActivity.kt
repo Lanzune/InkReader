@@ -83,6 +83,8 @@ import com.inkreader.kernel.core.ContentBookSource
 import com.inkreader.kernel.core.KernelEngine
 import com.inkreader.kernel.core.ReadingStateStore
 import com.inkreader.kernel.core.SavedReading
+import com.inkreader.plugin.quickjs.InstalledPlugin
+import com.inkreader.plugin.quickjs.PluginInstaller
 import com.inkreader.plugin.quickjs.PluginManifestParser
 import com.inkreader.plugin.quickjs.PluginSnapshot
 import com.inkreader.plugin.quickjs.QuickJsPluginHost
@@ -91,6 +93,7 @@ import com.inkreader.reader.engine.ReaderSurfaceView
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.io.File
 import kotlin.math.roundToInt
 
 class MainActivity : ComponentActivity() {
@@ -132,23 +135,30 @@ private fun InkReaderApp() {
     var pluginSnapshot: PluginSnapshot? by remember { mutableStateOf(null) }
     var pluginError: String? by remember { mutableStateOf(null) }
     var pluginEnabled by remember { mutableStateOf(pluginPrefs.getBoolean("enabled", true)) }
+    val pluginDir = remember(context) { File(context.filesDir, "plugins") }
+    var installedPlugin by remember { mutableStateOf(PluginInstaller.findInstalled(pluginDir)) }
 
-    LaunchedEffect(pluginEnabled) {
+    LaunchedEffect(pluginEnabled, installedPlugin) {
         pluginSnapshot = null
         pluginError = null
         if (!pluginEnabled) return@LaunchedEffect
         val result = runCatching {
             withContext(Dispatchers.IO) {
-                val manifestJson = context.assets
-                    .open("plugins/sample-theme.manifest.json")
-                    .bufferedReader()
-                    .use { it.readText() }
-                val manifest = PluginManifestParser.parse(manifestJson)
-                val script = context.assets
-                    .open("plugins/sample-theme.js")
-                    .bufferedReader()
-                    .use { it.readText() }
-                QuickJsPluginHost().load(script, manifest)
+                val plugin = installedPlugin
+                if (plugin != null) {
+                    QuickJsPluginHost().load(plugin.script, plugin.manifest)
+                } else {
+                    val manifestJson = context.assets
+                        .open("plugins/sample-theme.manifest.json")
+                        .bufferedReader()
+                        .use { it.readText() }
+                    val manifest = PluginManifestParser.parse(manifestJson)
+                    val script = context.assets
+                        .open("plugins/sample-theme.js")
+                        .bufferedReader()
+                        .use { it.readText() }
+                    QuickJsPluginHost().load(script, manifest)
+                }
             }
         }
         result.onSuccess { pluginSnapshot = it }
@@ -158,6 +168,52 @@ private fun InkReaderApp() {
     fun setPluginEnabled(enabled: Boolean) {
         pluginEnabled = enabled
         pluginPrefs.edit().putBoolean("enabled", enabled).apply()
+    }
+
+    val importPlugin = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument(),
+    ) { uri ->
+        if (uri != null) {
+            scope.launch {
+                val result = runCatching {
+                    withContext(Dispatchers.IO) {
+                        PluginInstaller.install(context, uri)
+                    }
+                }
+                result.onSuccess { plugin ->
+                    installedPlugin = plugin
+                    setPluginEnabled(true)
+                }.onFailure { failure ->
+                    pluginError = "插件安装失败：${failure.message ?: failure.javaClass.simpleName}"
+                }
+            }
+        }
+    }
+
+    fun uninstallPlugin() {
+        val plugin = installedPlugin ?: return
+        PluginInstaller.uninstall(pluginDir, plugin.manifest.id)
+        installedPlugin = null
+        setPluginEnabled(true)
+    }
+
+    fun installSampleInkp() {
+        scope.launch {
+            val result = runCatching {
+                withContext(Dispatchers.IO) {
+                    val bytes = context.assets
+                        .open("plugins/sample-plugin.inkp")
+                        .use { it.readBytes() }
+                    PluginInstaller.installBytes(bytes, pluginDir)
+                }
+            }
+            result.onSuccess { plugin ->
+                installedPlugin = plugin
+                setPluginEnabled(true)
+            }.onFailure { failure ->
+                pluginError = "示例 .inkp 安装失败：${failure.message ?: failure.javaClass.simpleName}"
+            }
+        }
     }
 
     fun openUri(uri: Uri, encoding: String? = null, initialOffset: Int = 0) {
@@ -322,11 +378,15 @@ private fun InkReaderApp() {
             pluginSnapshot = pluginSnapshot,
             pluginError = pluginError,
             pluginEnabled = pluginEnabled,
+            installedPlugin = installedPlugin,
             showSample = debuggable,
             onOpen = { openDocument.launch(arrayOf("*/*")) },
             onOpenSample = { openSampleEpub() },
             onOpenPdfSample = { openSamplePdf() },
             onOpenMarkdownSample = { openSampleMarkdown() },
+            onImportPlugin = { importPlugin.launch(arrayOf("*/*")) },
+            onUninstallPlugin = { uninstallPlugin() },
+            onInstallSampleInkp = { installSampleInkp() },
             onTogglePlugin = { setPluginEnabled(!pluginEnabled) },
             onContinue = {
                 saved?.let { record ->
@@ -408,11 +468,15 @@ private fun HomeScreen(
     pluginSnapshot: PluginSnapshot?,
     pluginError: String?,
     pluginEnabled: Boolean,
+    installedPlugin: InstalledPlugin?,
     showSample: Boolean,
     onOpen: () -> Unit,
     onOpenSample: () -> Unit,
     onOpenPdfSample: () -> Unit,
     onOpenMarkdownSample: () -> Unit,
+    onImportPlugin: () -> Unit,
+    onUninstallPlugin: () -> Unit,
+    onInstallSampleInkp: () -> Unit,
     onTogglePlugin: () -> Unit,
     onContinue: () -> Unit,
 ) {
@@ -420,8 +484,9 @@ private fun HomeScreen(
         Column(
             modifier = Modifier
                 .fillMaxSize()
+                .verticalScroll(rememberScrollState())
                 .padding(24.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp, Alignment.CenterVertically),
+            verticalArrangement = Arrangement.spacedBy(14.dp),
             horizontalAlignment = Alignment.Start,
         ) {
             Text(text = "InkReader", style = MaterialTheme.typography.headlineLarge)
@@ -448,6 +513,24 @@ private fun HomeScreen(
                 TextButton(onClick = onOpenMarkdownSample) {
                     Text("打开内置示例 Markdown（调试）")
                 }
+                TextButton(onClick = onInstallSampleInkp) {
+                    Text("安装内置示例 .inkp（调试）")
+                }
+            }
+            TextButton(onClick = onImportPlugin) {
+                Text("导入 .inkp 插件")
+            }
+            if (installedPlugin != null) {
+                TextButton(onClick = onUninstallPlugin) {
+                    Text("卸载已安装插件：${installedPlugin.manifest.name}")
+                }
+            }
+            if (pluginError != null) {
+                Text(
+                    text = "插件错误：$pluginError",
+                    color = MaterialTheme.colorScheme.error,
+                    style = MaterialTheme.typography.bodySmall,
+                )
             }
             if (!pluginEnabled) {
                 Text(

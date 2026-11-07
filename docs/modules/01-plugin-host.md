@@ -1,8 +1,8 @@
 # 模块 01：QuickJS 插件宿主
 
 **代码：** `plugin-host-quickjs`
-**阶段：** M6a
-**状态：** manifest 校验、能力白名单、2s 超时、启停已真机验证
+**阶段：** M6b
+**状态：** manifest 校验、启停、`.inkp` 安装/卸载已真机验证
 
 ## 当前实现（M1）
 
