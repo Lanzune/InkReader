@@ -347,6 +347,7 @@ private fun InkReaderApp() {
                     book = current.book,
                     encoding = current.encoding,
                     pluginTheme = pluginSnapshot?.theme,
+                    pluginCommand = pluginSnapshot?.commandResult,
                     settings = settings,
                     initialCharOffset = current.initialOffset,
                     onSettingsChange = { updated ->
@@ -494,6 +495,7 @@ private fun ReaderScreen(
     book: BookDocument,
     encoding: String?,
     pluginTheme: ReaderTheme?,
+    pluginCommand: String?,
     settings: ReaderSettings,
     initialCharOffset: Int,
     onSettingsChange: (ReaderSettings) -> Unit,
@@ -510,6 +512,7 @@ private fun ReaderScreen(
     var controlsVisible by remember { mutableStateOf(true) }
     var tocVisible by remember { mutableStateOf(false) }
     var settingsVisible by remember { mutableStateOf(false) }
+    var commandPaletteVisible by remember { mutableStateOf(false) }
     var readerView by remember { mutableStateOf<ReaderSurfaceView?>(null) }
     var linkHistory by remember { mutableStateOf<List<Int>>(emptyList()) }
 
@@ -572,7 +575,7 @@ private fun ReaderScreen(
         onBack()
     }
 
-    BackHandler(enabled = !settingsVisible && !tocVisible) {
+    BackHandler(enabled = !settingsVisible && !tocVisible && !commandPaletteVisible) {
         leaveReader()
     }
 
@@ -658,8 +661,8 @@ private fun ReaderScreen(
                         }
                     }
                 }
-                TextButton(onClick = { settingsVisible = true }) {
-                    Text("设置", color = Color(theme.foreground))
+                TextButton(onClick = { commandPaletteVisible = true }) {
+                    Text("命令", color = Color(theme.foreground))
                 }
             }
         }
@@ -678,6 +681,95 @@ private fun ReaderScreen(
             },
         )
     }
+
+    if (commandPaletteVisible) {
+        ReaderCommandPalette(
+            page = pageInfo.page + 1,
+            pageCount = pageInfo.pageCount,
+            hasToc = book.toc.isNotEmpty(),
+            canPrevious = pageInfo.page > 0,
+            canNext = pageInfo.page + 1 < pageInfo.pageCount,
+            pluginCommand = pluginCommand,
+            onDismiss = { commandPaletteVisible = false },
+            onToc = {
+                commandPaletteVisible = false
+                tocVisible = true
+            },
+            onSettings = {
+                commandPaletteVisible = false
+                settingsVisible = true
+            },
+            onToggleTheme = {
+                commandPaletteVisible = false
+                onSettingsChange(
+                    settings.copy(
+                        themeMode = if (theme.dark) ReaderThemeMode.LIGHT else ReaderThemeMode.DARK,
+                    ),
+                )
+            },
+            onPrevious = {
+                commandPaletteVisible = false
+                readerView?.previousPage()
+            },
+            onNext = {
+                commandPaletteVisible = false
+                readerView?.nextPage()
+            },
+        )
+    }
+}
+
+@Composable
+private fun ReaderCommandPalette(
+    page: Int,
+    pageCount: Int,
+    hasToc: Boolean,
+    canPrevious: Boolean,
+    canNext: Boolean,
+    pluginCommand: String?,
+    onDismiss: () -> Unit,
+    onToc: () -> Unit,
+    onSettings: () -> Unit,
+    onToggleTheme: () -> Unit,
+    onPrevious: () -> Unit,
+    onNext: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("命令面板") },
+        text = {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = 440.dp)
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(2.dp),
+            ) {
+                Text(
+                    text = "第 $page / $pageCount 页",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                if (hasToc) {
+                    TextButton(onClick = onToc) { Text("打开目录") }
+                }
+                TextButton(onClick = onSettings) { Text("阅读设置") }
+                TextButton(onClick = onToggleTheme) { Text("切换日间/夜间") }
+                TextButton(enabled = canPrevious, onClick = onPrevious) { Text("上一页") }
+                TextButton(enabled = canNext, onClick = onNext) { Text("下一页") }
+                if (!pluginCommand.isNullOrBlank()) {
+                    Text(
+                        text = pluginCommand,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) { Text("关闭") }
+        },
+    )
 }
 
 @Composable
