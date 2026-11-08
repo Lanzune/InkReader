@@ -8,6 +8,8 @@ import android.content.Context
 import android.content.ContextWrapper
 import android.content.Intent
 import android.content.pm.ApplicationInfo
+import android.graphics.Canvas
+import android.graphics.Paint
 import android.graphics.Typeface
 import android.net.Uri
 import android.os.Bundle
@@ -18,6 +20,7 @@ import android.text.style.AlignmentSpan
 import android.text.style.ImageSpan
 import android.text.style.LeadingMarginSpan
 import android.text.style.RelativeSizeSpan
+import android.text.style.ReplacementSpan
 import android.text.style.StyleSpan
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
@@ -79,6 +82,7 @@ import com.inkreader.kernel.api.BookDocument
 import com.inkreader.kernel.api.BuiltInThemes
 import com.inkreader.kernel.api.Chapter
 import com.inkreader.kernel.api.ChapterImage
+import com.inkreader.kernel.api.ChapterMark
 import com.inkreader.kernel.api.PageInfo
 import com.inkreader.kernel.api.OpenContext
 import com.inkreader.kernel.api.ReaderTheme
@@ -120,6 +124,8 @@ private sealed interface Screen {
         val encoding: String?,
         val initialOffset: Int,
         val persistProgress: Boolean = true,
+        val partial: Boolean = false,
+        val totalChars: Int = 0,
     ) : Screen
 }
 
@@ -141,6 +147,7 @@ private fun InkReaderApp() {
     var pluginEnabled by remember { mutableStateOf(pluginPrefs.getBoolean("enabled", true)) }
     var backupMessage by remember { mutableStateOf<String?>(null) }
     val bookCache = remember { java.util.concurrent.atomic.AtomicReference<Pair<String, BookDocument>?>(null) }
+    val bookIndex = remember(context) { BookIndexStore(context) }
     val pluginDir = remember(context) { File(context.filesDir, "plugins") }
     var installedPlugin by remember { mutableStateOf(PluginInstaller.findInstalled(pluginDir)) }
 
@@ -322,6 +329,11 @@ private fun InkReaderApp() {
                         }
                         val key = "${uri}#${source.size}#${encoding.orEmpty()}"
                         val cached = bookCache.get()
+                        val knownMarks = bookIndex.load(key)
+                        val startChapter = knownMarks
+                            .indexOfLast { mark -> mark.charOffset <= resumeOffset }
+                            .coerceAtLeast(0)
+                        val previewChapters = previewChapterCount(knownMarks, startChapter)
                         val preview = if (cached?.first != key && source.localFile() != null &&
                             mimeTypeForName(source.displayName) == "application/epub+zip"
                         ) {
@@ -329,9 +341,14 @@ private fun InkReaderApp() {
                                 EpubFormatProvider().openPreview(
                                     source,
                                     OpenContext(source.displayName, source.mimeType, encoding),
-                                    maxChapters = 8,
+                                    maxChapters = previewChapters,
+                                    startChapter = startChapter,
+                                    knownMarks = knownMarks,
                                 )?.takeIf { previewBook ->
-                                    resumeOffset <= (previewBook.chapters.firstOrNull()?.text?.length ?: 0)
+                                    val chapter = previewBook.chapters.firstOrNull()
+                                    val base = chapter?.baseOffset ?: 0
+                                    val end = base + (chapter?.text?.length ?: 0)
+                                    resumeOffset in base..end
                                 }
                             }.getOrNull()
                         } else {
@@ -344,6 +361,9 @@ private fun InkReaderApp() {
                                 charOffset = resumeOffset,
                                 encoding = encoding,
                             )
+                            val totalChars = knownMarks.lastOrNull()
+                                ?.let { mark -> mark.charOffset + mark.length }
+                                ?: 0
                             readingState.save(record.uri, record.title, record.charOffset, record.encoding)
                             withContext(Dispatchers.Main) {
                                 saved = record
@@ -352,6 +372,8 @@ private fun InkReaderApp() {
                                     uri,
                                     encoding,
                                     resumeOffset,
+                                    partial = true,
+                                    totalChars = totalChars,
                                 )
                             }
                         }
@@ -368,6 +390,7 @@ private fun InkReaderApp() {
                                 ),
                             ).open(source, encoding).also {
                                 bookCache.set(key to it)
+                                bookIndex.save(key, it.chapterMarks)
                             }
                         }
                         book
@@ -579,6 +602,8 @@ private fun InkReaderApp() {
                     pluginCommand = pluginSnapshot?.commandResult,
                     settings = settings,
                     initialCharOffset = current.initialOffset,
+                    partial = current.partial,
+                    totalChars = current.totalChars,
                     onSettingsChange = { updated ->
                         settings = updated
                         settingsStore.save(updated)
@@ -781,7 +806,7 @@ private fun HomeScreen(
             text = {
                 Text(
                     text = """
-                        InkReader 0.7.2
+                        InkReader ${BuildConfig.VERSION_NAME}
                         Copyright (C) 2026 InkReader contributors
 
                         本程序按 GNU Affero General Public License v3.0 only 发布，不提供任何担保。
@@ -825,6 +850,8 @@ private fun ReaderScreen(
     pluginCommand: String?,
     settings: ReaderSettings,
     initialCharOffset: Int,
+    partial: Boolean,
+    totalChars: Int,
     onSettingsChange: (ReaderSettings) -> Unit,
     onEncodingChange: (String?, Int) -> Unit,
     onProgress: (Int) -> Unit,
@@ -835,17 +862,15 @@ private fun ReaderScreen(
     val needsRichText = chapter.images.isNotEmpty() || chapter.styles.isNotEmpty() || chapter.links.isNotEmpty()
     var readerText by remember(bookKey) { mutableStateOf<CharSequence?>(null) }
     var appliedText by remember(bookKey) { mutableStateOf<CharSequence?>(null) }
+    var pendingOffset by remember(bookKey) { mutableStateOf<Int?>(initialCharOffset) }
     var pageReady by remember(bookKey) { mutableStateOf(false) }
     LaunchedEffect(bookKey, chapter, book.resources) {
-        if (readerText == null) {
-            readerText = if (needsRichText) "" else chapter.text
-        }
         if (!needsRichText) {
             readerText = chapter.text
             return@LaunchedEffect
         }
         val rich = withContext(Dispatchers.Default) {
-            buildReaderText(context, chapter, book.resources)
+            buildReaderText(context, chapter, book.resources, bookKey)
         }
         readerText = rich
     }
@@ -935,8 +960,10 @@ private fun ReaderScreen(
                         linkHistory = linkHistory + currentCharOffset()
                         goToCharOffset(target)
                     }
-                    onPageReady = { pageReady = true }
-                    setContent(readerText ?: "", theme, initialCharOffset)
+                    onPageReady = {
+                        pageReady = true
+                    }
+                    setContent(readerText ?: "", theme, initialCharOffset, chapter.baseOffset)
                     appliedText = readerText
                     readerView = this
                 }
@@ -946,8 +973,15 @@ private fun ReaderScreen(
                 surface.setTheme(theme)
                 surface.applyStyle(style)
                 if (appliedText !== readerText) {
-                    surface.setContent(readerText ?: "", theme, surface.currentCharOffset())
+                    val restoreOffset = pendingOffset ?: surface.currentCharOffset()
+                    surface.setContent(
+                        readerText ?: "",
+                        theme,
+                        restoreOffset,
+                        chapter.baseOffset,
+                    )
                     appliedText = readerText
+                    pendingOffset = null
                 }
             },
             modifier = Modifier.fillMaxSize(),
@@ -986,10 +1020,15 @@ private fun ReaderScreen(
                     style = MaterialTheme.typography.titleSmall,
                 )
                 Text(
-                    text = if (pageInfo.pageCount > 0) {
-                        "${pageInfo.page + 1}/${pageInfo.pageCount}"
-                    } else {
-                        "${pageInfo.page + 1}/…"
+                    text = when {
+                        partial && totalChars > 0 -> {
+                            val tenths = (pageInfo.charOffset * 1000L / totalChars)
+                                .coerceIn(0L, 1000L)
+                            "${tenths / 10}.${tenths % 10}%"
+                        }
+                        partial -> "${pageInfo.page + 1}/…"
+                        pageInfo.pageCount > 0 -> "${pageInfo.page + 1}/${pageInfo.pageCount}"
+                        else -> "${pageInfo.page + 1}/…"
                     },
                     color = Color(theme.foreground),
                     style = MaterialTheme.typography.labelMedium,
@@ -1279,6 +1318,22 @@ private fun ReaderSettingsDialog(
     )
 }
 
+private fun previewChapterCount(
+    marks: List<ChapterMark>,
+    startChapter: Int,
+    maximum: Int = 8,
+    budgetChars: Int = 80_000,
+): Int {
+    if (marks.isEmpty() || startChapter !in marks.indices) return maximum
+    var count = 1
+    var chars = marks[startChapter].length
+    while (count < maximum && startChapter + count < marks.size && chars < budgetChars) {
+        chars += marks[startChapter + count].length + 2
+        count += 1
+    }
+    return count
+}
+
 private fun applyWindowBrightness(activity: Activity?, value: Float?) {
     val window = activity?.window ?: return
     val params = window.attributes
@@ -1290,6 +1345,7 @@ private fun buildReaderText(
     context: Context,
     chapter: Chapter,
     resources: Map<String, ByteArray>,
+    cachePrefix: String,
 ): CharSequence {
     if (chapter.images.isEmpty() && chapter.styles.isEmpty() && chapter.links.isEmpty()) {
         return chapter.text
@@ -1402,13 +1458,18 @@ private fun buildReaderText(
         if (image.charOffset !in 0 until builder.length) return@forEach
         if (builder[image.charOffset] != '\uFFFC') return@forEach
         val bitmapBytes = resources[image.resource]
-        val drawable = bitmapBytes?.let { LazyEpubDrawable(it, maxWidth, maxHeight) }
-        if (drawable == null || !drawable.isValid) {
-            builder.replace(
-                image.charOffset,
-                image.charOffset + 1,
-                image.alt.ifBlank { "［图片］" },
-            )
+        if (bitmapBytes == null) {
+            setAltImageSpan(builder, image)
+            return@forEach
+        }
+        val drawable = LazyEpubDrawable(
+            bitmapBytes,
+            maxWidth,
+            maxHeight,
+            "$cachePrefix|${image.resource}",
+        )
+        if (!drawable.isValid) {
+            setAltImageSpan(builder, image)
             return@forEach
         }
         drawable.setBounds(0, 0, drawable.intrinsicWidth, drawable.intrinsicHeight)
@@ -1426,6 +1487,51 @@ private fun buildReaderText(
         )
     }
     return builder
+}
+
+/** Keep the one-character placeholder so later span offsets stay valid. */
+private fun setAltImageSpan(builder: SpannableStringBuilder, image: ChapterImage) {
+    val start = image.charOffset
+    if (start !in 0 until builder.length) return
+    builder.setSpan(
+        AltImageSpan(image.alt.ifBlank { "［图片］" }),
+        start,
+        start + 1,
+        Spannable.SPAN_EXCLUSIVE_EXCLUSIVE,
+    )
+    builder.setSpan(
+        AlignmentSpan.Standard(Layout.Alignment.ALIGN_CENTER),
+        start,
+        start + 1,
+        Spannable.SPAN_EXCLUSIVE_EXCLUSIVE,
+    )
+}
+
+private class AltImageSpan(private val label: String) : ReplacementSpan() {
+    override fun getSize(
+        paint: Paint,
+        text: CharSequence,
+        start: Int,
+        end: Int,
+        fm: Paint.FontMetricsInt?,
+    ): Int = paint.measureText(label)
+        .coerceAtMost(paint.textSize * 8f)
+        .toInt()
+        .coerceAtLeast(1)
+
+    override fun draw(
+        canvas: Canvas,
+        text: CharSequence,
+        start: Int,
+        end: Int,
+        x: Float,
+        top: Int,
+        y: Int,
+        bottom: Int,
+        paint: Paint,
+    ) {
+        canvas.drawText(label, x, y.toFloat(), paint)
+    }
 }
 
 private tailrec fun Context.findActivity(): Activity? = when (this) {

@@ -14,7 +14,7 @@
 
 ## 当前状态
 
-**阶段：M8a.1 图片预加载已真机验证。**
+**阶段：M8b.1 目标位置预览已真机验证，第 1 页约 0.21 s。**
 
 - M0～M2：TXT 阅读器完成，标签 `m2-txt-reader`
 - M3：EPUB 完成，标签 `m3-epub`
@@ -23,15 +23,17 @@
 - M6：manifest、`.inkp` 安装、启停/卸载，标签 `m6-plugins`
 - M7：R8 release、正式签名、AGPL-3.0-only，标签 `v0.7.2`
 - M8a：首屏局部排版、并行 EPUB 解析、后台富文本/分页、内存缓存，0.8.0
-- M8b：EPUB 预览加载（ZipFile 随机读 + 前 8 章 + 后台全量），0.8.2，首屏约 2.2 s
-- 后续：目标章定位、增量章节、持久索引，目标首屏 <1 s
+- M8b：EPUB 预览加载（ZipFile 随机读 + 前 8 章 + 后台全量），0.8.2
+- M8b.1：content URI 本地缓存、目标章索引、章节窗口、图片位图复用，0.8.3
+- 后续：增量章节、TXT/HTML/MD 流式、PDF 基准、持久页索引
 
 性能测试：`scripts/bench-open.cmd -Runs 5`
 性能记录：[perf-phase1](docs/quality/2026-11-08-perf-phase1.md)
 图片预加载：[image-preload](docs/quality/2026-11-08-image-preload.md)
 EPUB 预览：[m8b-preview](docs/quality/2026-11-08-m8b-preview.md)
+目标位置预览：[m8b1-open](docs/quality/2026-11-08-m8b1-open.md)
 
-下一步：M8b.1 增量章节加载。
+下一步：M8c 增量章节与 TXT/HTML/MD 流式首屏。
 
 ## 目录结构
 

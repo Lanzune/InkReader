@@ -63,6 +63,19 @@ data class Chapter(
     val images: List<ChapterImage> = emptyList(),
     val styles: List<ChapterStyle> = emptyList(),
     val links: List<ChapterLink> = emptyList(),
+    /**
+     * Global character offset of [text] inside the whole book. A partial
+     * preview that starts at a later chapter carries the skipped prefix here
+     * so reading positions stay stable when the full book is loaded.
+     */
+    val baseOffset: Int = 0,
+)
+
+/** Spine-level offset map used to reopen near the saved position. */
+data class ChapterMark(
+    val path: String,
+    val charOffset: Int,
+    val length: Int,
 )
 
 data class TocEntry(
@@ -82,6 +95,8 @@ data class BookDocument(
     val chapters: List<Chapter>,
     val toc: List<TocEntry> = emptyList(),
     val resources: Map<String, ByteArray> = emptyMap(),
+    /** Global spine offsets; empty for formats without a chapter map. */
+    val chapterMarks: List<ChapterMark> = emptyList(),
 )
 
 data class FormatMatch(

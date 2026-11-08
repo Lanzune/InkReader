@@ -83,6 +83,8 @@ internal object XhtmlText {
     private val styleBlockPattern = Regex("(?is)<style\\b[^>]*>(.*?)</style\\s*>")
     private val cssRulePattern = Regex("(?is)([^{}]+)\\{([^{}]*)\\}")
     private val textIndentPattern = Regex("""(?i)\btext-indent\s*:\s*([^;]+)""")
+    private val horizontalSpacePattern = Regex("[\\t ]+")
+    private val excessiveNewlinesPattern = Regex("\\n{3,}")
     private const val ALIGN_CENTER_OPEN = '\uE010'
     private const val ALIGN_RIGHT_OPEN = '\uE011'
     private const val ALIGN_CLOSE = '\uE012'
@@ -139,9 +141,9 @@ internal object XhtmlText {
         text = text.replace('\u00A0', ' ')
         text = text.replace("\r\n", "\n").replace('\r', '\n')
         text = text.lines().joinToString("\n") { line ->
-            line.replace(Regex("[\\t ]+"), " ").trim()
+            line.replace(horizontalSpacePattern, " ").trim()
         }
-        text = text.replace(Regex("\\n{3,}"), "\n\n").trim()
+        text = text.replace(excessiveNewlinesPattern, "\n\n").trim()
 
         val clean = StringBuilder(text.length)
         val styles = mutableListOf<RichStyle>()

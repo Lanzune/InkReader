@@ -18,7 +18,7 @@ What it measures:
 
 Limitations:
 
-- UI Automator dump adds overhead; treat absolute values as conservative upper bounds
+- UI Automator dump adds overhead; one `uiautomator dump` on the test device takes about 2.2 s, so the script cannot resolve sub-second opens. Use screenshots or an instrumentation build for first-page timing.
 - it needs a saved reading record
 - it does not measure the first painted frame separately; use Perfetto/atrace for frame timing
 
@@ -26,14 +26,15 @@ Limitations:
 
 Current large EPUB (12.5 MB, 4145 pages), OnePlus Ace 5:
 
-| Version | Open (script, median) |
-|---|---|
-| 0.7.2 | ~8.4 s |
-| 0.8.0 phase 1 | ~2.5 s warm; ~5.0 s first run |
+| Version | Open (script, median) | First readable page |
+|---|---|---|
+| 0.7.2 | ~8.4 s | ~8.4 s |
+| 0.8.0 phase 1 | ~2.5 s warm; ~5.0 s first run | ~2.2 s |
+| 0.8.3 | 2.5 s (tool floor) | 0.21 s first page; 0.75 s far resume |
 
-The first run includes a cold parse; subsequent runs use the in-memory
-`BookDocument` cache. A real first-content measurement is being added in
-phase 2.
+The 0.8.3 column separates the script number from the in-app first-page
+measurement. The script number is dominated by the UI dump and should not be
+read as a regression. Details: [M8b.1](../docs/quality/2026-11-08-m8b1-open.md).
 
 ## Next measurements
 

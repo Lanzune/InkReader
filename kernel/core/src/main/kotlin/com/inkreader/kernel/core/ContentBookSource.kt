@@ -9,7 +9,9 @@ import android.net.Uri
 import android.provider.OpenableColumns
 import com.inkreader.kernel.api.BookReadException
 import com.inkreader.kernel.api.BookSource
+import java.io.File
 import java.io.IOException
+import java.security.MessageDigest
 
 /**
  * 通过 SAF content URI 读取书籍。
@@ -22,6 +24,7 @@ class ContentBookSource(
 ) : BookSource {
 
     private val resolver: ContentResolver = context.contentResolver
+    @Volatile private var preparedFile: File? = null
 
     override val displayName: String by lazy {
         queryName() ?: uri.lastPathSegment?.substringAfterLast('/') ?: "未命名书籍"
@@ -42,9 +45,78 @@ class ContentBookSource(
         }
     }
 
-    override fun readAll(): ByteArray = bytes
+    override fun readAll(): ByteArray {
+        // The preview path already materialised a local copy; reuse it instead
+        // of asking the provider for the whole file a second time. Formats that
+        // never asked for random access still stream once, without a cache copy.
+        val cached = preparedFile
+        if (cached != null) return cached.readBytes()
+        return bytes
+    }
 
-    override fun close() = Unit
+    /**
+     * SAF gives us a stream, while EPUB random access needs a real file.
+     * Materialise one cached copy per URI so previews and reopens can seek
+     * without reading the whole archive into memory.
+     */
+    override fun localFile(): File? {
+        preparedFile?.let { return it }
+        val file = runCatching { cachedFile() }.getOrNull() ?: return null
+        preparedFile = file
+        return file
+    }
+
+    @Synchronized
+    private fun cachedFile(): File? {
+        val expected = size
+        val directory = File(context.cacheDir, "book-source").apply { mkdirs() }
+        val digest = MessageDigest.getInstance("SHA-256")
+            .digest(uri.toString().toByteArray())
+            .joinToString("") { byte -> (byte.toInt() and 0xFF).toString(16).padStart(2, '0') }
+        val target = File(directory, "$digest.book")
+        if (target.isFile && target.length() > 0 && (expected <= 0 || target.length() == expected)) {
+            return target
+        }
+
+        val temporary = File(directory, "$digest.tmp")
+        temporary.delete()
+        try {
+            resolver.openInputStream(uri)?.use { input ->
+                temporary.outputStream().use { output ->
+                    input.copyTo(output, DEFAULT_BUFFER_SIZE)
+                }
+            } ?: return null
+            if (expected > 0 && temporary.length() != expected) {
+                temporary.delete()
+                return null
+            }
+            if (!temporary.renameTo(target)) {
+                target.delete()
+                if (!temporary.renameTo(target)) {
+                    temporary.delete()
+                    return null
+                }
+            }
+            pruneCache(directory, target)
+            return target
+        } catch (error: IOException) {
+            temporary.delete()
+            throw error
+        }
+    }
+
+    private fun pruneCache(directory: File, keep: File) {
+        val files = directory.listFiles { file -> file.extension == "book" }
+            ?.sortedByDescending { it.lastModified() }
+            ?: return
+        var total = 0L
+        files.forEachIndexed { index, file ->
+            total += file.length()
+            if (file != keep && (index >= MAX_CACHED_BOOKS || total > MAX_CACHE_BYTES)) {
+                file.delete()
+            }
+        }
+    }
 
     private fun queryName(): String? = runCatching {
         resolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { cursor ->
@@ -67,4 +139,11 @@ class ContentBookSource(
             }
         }
     }.getOrNull()
+
+    override fun close() = Unit
+
+    private companion object {
+        const val MAX_CACHED_BOOKS = 3
+        const val MAX_CACHE_BYTES = 64L * 1024 * 1024
+    }
 }

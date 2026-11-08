@@ -10,6 +10,7 @@ import com.inkreader.kernel.api.BookSource
 import com.inkreader.kernel.api.Chapter
 import com.inkreader.kernel.api.ChapterImage
 import com.inkreader.kernel.api.ChapterLink
+import com.inkreader.kernel.api.ChapterMark
 import com.inkreader.kernel.api.ChapterStyle
 import com.inkreader.kernel.api.FormatMatch
 import com.inkreader.kernel.api.FormatProvider
@@ -58,6 +59,8 @@ class EpubFormatProvider : FormatProvider {
         source: BookSource,
         context: OpenContext,
         maxChapters: Int = 8,
+        startChapter: Int = 0,
+        knownMarks: List<ChapterMark> = emptyList(),
     ): BookDocument? {
         val file = source.localFile() ?: return null
         if (!file.isFile) return null
@@ -87,12 +90,29 @@ class EpubFormatProvider : FormatProvider {
             }
             val navigation = readNavigation(EpubArchive.fromEntries(baseEntries), packageInfo)
 
-            val selected = packageInfo.spine.take(maxChapters.coerceAtLeast(1))
+            // When an index is available startChapter addresses the index (which
+            // only contains non-empty chapters); map it back to the spine so a
+            // blank cover/front-matter entry cannot shift the window by one.
+            val startMark = knownMarks.getOrNull(startChapter)
+            val first = if (startMark != null) {
+                packageInfo.spine.indexOfFirst { item -> item.path == startMark.path }
+                    .takeIf { index -> index >= 0 }
+                    ?: 0
+            } else {
+                startChapter.coerceIn(0, packageInfo.spine.lastIndex)
+            }
+            val selected = packageInfo.spine.drop(first).take(maxChapters.coerceAtLeast(1))
+            val baseOffset = startMark
+                ?.takeIf { mark -> mark.path == selected.firstOrNull()?.path }
+                ?.charOffset
+                ?: 0
+            val chapterCache = LinkedHashMap<String, CachedChapter>()
             for (item in selected) {
                 val bytes = readZipEntry(zip, item.path) ?: continue
                 baseEntries[item.path] = bytes
                 val html = EpubArchive.fromEntries(baseEntries).text(item.path) ?: continue
                 val rich = XhtmlText.extractRich(html)
+                chapterCache[item.path] = CachedChapter(html, rich)
                 val baseDir = EpubArchive.baseDir(item.path)
                 for (image in rich.images) {
                     val path = EpubArchive.resolve(baseDir, image.src) ?: continue
@@ -106,6 +126,8 @@ class EpubFormatProvider : FormatProvider {
                 packageInfo.copy(spine = selected),
                 navigation,
                 source.displayName,
+                baseOffset = baseOffset,
+                chapterCache = chapterCache,
             )
         }
     }
@@ -248,12 +270,15 @@ class EpubFormatProvider : FormatProvider {
         packageInfo: PackageInfo,
         navigation: List<NavLink>,
         displayName: String,
+        baseOffset: Int = 0,
+        chapterCache: Map<String, CachedChapter> = emptyMap(),
     ): BookDocument {
         val navigationByPath = navigation.groupBy { it.path }
         val text = StringBuilder()
         val toc = mutableListOf<TocEntry>()
         val chapterImages = mutableListOf<ChapterImage>()
         val chapterStyles = mutableListOf<ChapterStyle>()
+        val chapterMarks = mutableListOf<ChapterMark>()
         val resources = LinkedHashMap<String, ByteArray>()
         val anchors = LinkedHashMap<String, Int>()
         val chapterStarts = LinkedHashMap<String, Int>()
@@ -263,8 +288,9 @@ class EpubFormatProvider : FormatProvider {
 
         val parsedChapters = packageInfo.spine.parallelStream()
             .map { item ->
-                val html = archive.text(item.path) ?: return@map null
-                val rich = XhtmlText.extractRich(html)
+                val cached = chapterCache[item.path]
+                val html = cached?.html ?: archive.text(item.path) ?: return@map null
+                val rich = cached?.rich ?: XhtmlText.extractRich(html)
                 if (rich.text.isBlank()) null else ParsedChapter(item, html, rich)
             }
             .filter { it != null }
@@ -278,11 +304,13 @@ class EpubFormatProvider : FormatProvider {
             val chapterText = rich.text
 
             if (hasContent) text.append("\n\n")
-            val offset = text.length
+            val localOffset = text.length
+            val offset = baseOffset + localOffset
             text.append(chapterText)
             hasContent = true
             chapterNumber += 1
             chapterStarts[item.path] = offset
+            chapterMarks.add(ChapterMark(item.path, offset, chapterText.length))
 
             val baseDir = EpubArchive.baseDir(item.path)
             for (anchor in rich.anchors) {
@@ -291,8 +319,8 @@ class EpubFormatProvider : FormatProvider {
             for (link in rich.links) {
                 pendingLinks.add(
                     PendingLink(
-                        start = offset + link.start,
-                        endExclusive = offset + link.endExclusive,
+                        start = localOffset + link.start,
+                        endExclusive = localOffset + link.endExclusive,
                         target = link.target,
                         chapterPath = item.path,
                         baseDir = baseDir,
@@ -306,7 +334,7 @@ class EpubFormatProvider : FormatProvider {
                 resources.putIfAbsent(path, bytes)
                 chapterImages.add(
                     ChapterImage(
-                        charOffset = offset + image.charOffset,
+                        charOffset = localOffset + image.charOffset,
                         resource = path,
                         alt = image.alt,
                     ),
@@ -315,8 +343,8 @@ class EpubFormatProvider : FormatProvider {
             for (style in rich.styles) {
                 chapterStyles.add(
                     ChapterStyle(
-                        start = offset + style.start,
-                        endExclusive = offset + style.endExclusive,
+                        start = localOffset + style.start,
+                        endExclusive = localOffset + style.endExclusive,
                         kind = style.kind,
                     ),
                 )
@@ -377,10 +405,12 @@ class EpubFormatProvider : FormatProvider {
                     images = chapterImages,
                     styles = chapterStyles,
                     links = links,
+                    baseOffset = baseOffset,
                 ),
             ),
             toc = toc,
             resources = resources,
+            chapterMarks = chapterMarks,
         )
     }
 
@@ -414,6 +444,11 @@ class EpubFormatProvider : FormatProvider {
 
     private data class ParsedChapter(
         val item: ManifestItem,
+        val html: String,
+        val rich: XhtmlText.RichText,
+    )
+
+    private data class CachedChapter(
         val html: String,
         val rich: XhtmlText.RichText,
     )

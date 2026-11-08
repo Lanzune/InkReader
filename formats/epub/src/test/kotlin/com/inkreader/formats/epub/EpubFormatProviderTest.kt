@@ -76,6 +76,46 @@ class EpubFormatProviderTest {
     }
 
     @Test
+    fun previewStartsAtRequestedChapterWithGlobalOffsets() {
+        val bytes = EpubFixture.create()
+        val file = java.io.File.createTempFile("inkreader-preview", ".epub").apply {
+            writeBytes(bytes)
+            deleteOnExit()
+        }
+        try {
+            val source = FakeEpubSource(
+                displayName = "sample.epub",
+                mimeType = "application/epub+zip",
+                bytes = bytes,
+                local = file,
+            )
+            val context = OpenContext(source.displayName, source.mimeType)
+            val full = provider.open(source, context)
+            val marks = full.chapterMarks
+            assertEquals(2, marks.size)
+            assertTrue(marks[1].charOffset > marks[0].charOffset)
+
+            val preview = provider.openPreview(
+                source = source,
+                context = context,
+                maxChapters = 1,
+                startChapter = 1,
+                knownMarks = marks,
+            )
+            checkNotNull(preview)
+            val chapter = preview.chapters.single()
+            assertEquals(marks[1].charOffset, chapter.baseOffset)
+            assertEquals(marks[1].length, chapter.text.length)
+            assertEquals(marks[1].charOffset, preview.toc.first().charOffset)
+            // Chapter-local span offsets must not include the skipped prefix.
+            assertTrue(chapter.images.single().charOffset < chapter.text.length)
+            assertTrue(chapter.links.isEmpty())
+        } finally {
+            file.delete()
+        }
+    }
+
+    @Test
     fun rejectsNonZip() {
         val source = FakeEpubSource(
             displayName = "bad.epub",

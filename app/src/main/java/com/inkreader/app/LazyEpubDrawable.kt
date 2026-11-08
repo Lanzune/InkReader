@@ -10,6 +10,7 @@ import android.graphics.ColorFilter
 import android.graphics.Paint
 import android.graphics.PixelFormat
 import android.graphics.drawable.Drawable
+import android.util.LruCache
 import com.inkreader.reader.engine.AsyncPageImage
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.Executors
@@ -19,11 +20,16 @@ import kotlin.math.min
  * EPUB image drawable that reads only image bounds up front and decodes the
  * bitmap on a worker before the page is painted. ReaderSurfaceView calls
  * preload() for the current/next page, so images never pop in during drawing.
+ *
+ * Decoded bitmaps are shared by resource path. When the full book replaces a
+ * preview the same image is already decoded, avoiding a blank page or a second
+ * decode of the current spread.
  */
 class LazyEpubDrawable(
     private val bytes: ByteArray,
     maxWidth: Int,
     maxHeight: Int,
+    private val cacheKey: String? = null,
 ) : Drawable(), AsyncPageImage {
     private val paint = Paint(Paint.FILTER_BITMAP_FLAG)
     private val sourceWidth: Int
@@ -57,6 +63,7 @@ class LazyEpubDrawable(
         var sample = 1
         while (sourceWidth / sample > maxWidth * 2) sample *= 2
         sampleSize = sample
+        if (cacheKey != null) bitmap = CACHE.get(cacheKey)
     }
 
     val isValid: Boolean get() = sourceWidth > 0 && sourceHeight > 0
@@ -66,6 +73,12 @@ class LazyEpubDrawable(
 
     override fun preload(onReady: () -> Unit) {
         if (isReady) {
+            onReady()
+            return
+        }
+        val cached = cacheKey?.let { CACHE.get(it) }
+        if (cached != null) {
+            bitmap = cached
             onReady()
             return
         }
@@ -81,6 +94,9 @@ class LazyEpubDrawable(
             )
             bitmap = image
             failed = image == null
+            if (image != null && cacheKey != null) {
+                CACHE.put(cacheKey, image)
+            }
             loading = false
             val pending = callbacks.toList()
             callbacks.clear()
@@ -110,5 +126,8 @@ class LazyEpubDrawable(
 
     private companion object {
         val IMAGE_EXECUTOR = Executors.newFixedThreadPool(2)
+        val CACHE = object : LruCache<String, Bitmap>(24 * 1024 * 1024) {
+            override fun sizeOf(key: String, value: Bitmap): Int = value.allocationByteCount
+        }
     }
 }

@@ -13,9 +13,11 @@ internal class FakeEpubSource(
     override val displayName: String,
     override val mimeType: String?,
     private val bytes: ByteArray,
+    private val local: java.io.File? = null,
 ) : BookSource {
     override val size: Long = bytes.size.toLong()
     override fun readAll(): ByteArray = bytes
+    override fun localFile(): java.io.File? = local
     override fun close() = Unit
 }
 

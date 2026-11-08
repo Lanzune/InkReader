@@ -51,6 +51,7 @@ class ReaderSurfaceView(context: Context) : View(context) {
     private var pageStarts: IntArray = IntArray(0)
     private var currentPage: Int = 0
     private var pendingCharOffset: Int? = null
+    private var contentBaseOffset: Int = 0
     private var ready = false
     private var pageBitmap: Bitmap? = null
     private var pageSnapshotCache: Bitmap? = null
@@ -129,7 +130,7 @@ class ReaderSurfaceView(context: Context) : View(context) {
         if (style == newStyle) return
         cancelPageAnimation()
         releasePageSnapshot()
-        val restoreOffset = currentCharOffset()
+        val restoreOffset = currentCharOffset() - contentBaseOffset
         style = newStyle
         textPaint.textSize = sp(style.fontSizeSp)
         setPadding(dp(style.horizontalPaddingDp), dp(76), dp(style.horizontalPaddingDp), dp(52))
@@ -139,10 +140,16 @@ class ReaderSurfaceView(context: Context) : View(context) {
         }
     }
 
-    fun setContent(text: CharSequence, readerTheme: ReaderTheme = theme, initialCharOffset: Int = 0) {
+    fun setContent(
+        text: CharSequence,
+        readerTheme: ReaderTheme = theme,
+        initialCharOffset: Int = 0,
+        baseOffset: Int = 0,
+    ) {
         cancelPageAnimation()
         releasePageSnapshot()
         content = text
+        contentBaseOffset = baseOffset.coerceAtLeast(0)
         theme = readerTheme
         textPaint.color = theme.foreground
         setBackgroundColor(theme.background)
@@ -150,7 +157,7 @@ class ReaderSurfaceView(context: Context) : View(context) {
         renderedPageKey = -1
         ready = true
         pageDrawn = false
-        pendingCharOffset = initialCharOffset.coerceAtLeast(0)
+        pendingCharOffset = (initialCharOffset - contentBaseOffset).coerceIn(0, text.length)
         if (width > 0 && height > 0) {
             startLayout(pendingCharOffset)
         }
@@ -158,9 +165,10 @@ class ReaderSurfaceView(context: Context) : View(context) {
 
     fun goToCharOffset(charOffset: Int) {
         if (content.isBlank()) return
+        val localOffset = (charOffset - contentBaseOffset).coerceIn(0, content.length)
         cancelPageAnimation()
         if (textLayout == null || pageStarts.isEmpty()) {
-            buildLocalPage(charOffset.coerceIn(0, content.length))
+            buildLocalPage(localOffset)
             localPageNumber = 0
             currentPage = 0
             renderedPageKey = -1
@@ -169,7 +177,7 @@ class ReaderSurfaceView(context: Context) : View(context) {
             invalidate()
             return
         }
-        currentPage = pageForOffset(charOffset)
+        currentPage = pageForOffset(localOffset)
         renderedPageKey = -1
         preloadPageImages(pageStart(currentPage), pageEnd(currentPage))
         invalidate()
@@ -177,10 +185,10 @@ class ReaderSurfaceView(context: Context) : View(context) {
     }
 
     fun currentCharOffset(): Int {
-        if (textLayout == null || pageStarts.isEmpty()) return localPageStart
-        val layout = textLayout ?: return localPageStart
+        if (textLayout == null || pageStarts.isEmpty()) return contentBaseOffset + localPageStart
+        val layout = textLayout ?: return contentBaseOffset + localPageStart
         val line = pageStarts[currentPage.coerceIn(0, pageStarts.size - 1)]
-        return layout.getLineStart(line)
+        return contentBaseOffset + layout.getLineStart(line)
     }
 
     fun setTheme(readerTheme: ReaderTheme) {
@@ -386,7 +394,8 @@ class ReaderSurfaceView(context: Context) : View(context) {
     }
 
     private fun startLayout(initialCharOffset: Int? = null) {
-        val restoreOffset = initialCharOffset ?: pendingCharOffset ?: currentCharOffset()
+        val restoreOffset = initialCharOffset ?: pendingCharOffset
+            ?: (currentCharOffset() - contentBaseOffset)
         pendingCharOffset = null
         layoutJob?.cancel()
         layoutGeneration += 1
