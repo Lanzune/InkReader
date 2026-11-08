@@ -1,10 +1,11 @@
 # InkReader 文档索引
 
-> 当前阶段：**M8a 首屏优化（0.8.0），大书首屏约 2.2 s，未达 1 s**
+> 当前阶段：**M8a.1 图片预加载已真机验证，大书暖启动约 2.5 s**
 >
 > 内部代号：`InkReader`。正式名称、包名和 GitHub 仓库地址待定，不影响当前开发。
 >
-> 性能：[phase 1](quality/2026-11-08-perf-phase1.md) · 测试：[bench-open](../scripts/bench-open.ps1)。
+> 性能：[phase 1](quality/2026-11-08-perf-phase1.md) · 图片：[image-preload](quality/2026-11-08-image-preload.md)。
+> 测试：[bench-open](../scripts/bench-open.ps1)。
 > 插件开发：[plugin-dev](plugin-dev.md)；示例：[examples/paper-theme](../examples/paper-theme/)。
 > 许可证：[LICENSE](../LICENSE) · [说明](../LICENSE.md) · [NOTICE](../NOTICE)。
 
