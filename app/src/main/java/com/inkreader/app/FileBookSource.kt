@@ -18,5 +18,19 @@ class FileBookSource(
 
     override fun readAll(): ByteArray = file.readBytes()
 
+    override fun readPrefix(maxBytes: Int): ByteArray {
+        if (maxBytes <= 0) return ByteArray(0)
+        return file.inputStream().use { input ->
+            val buffer = ByteArray(maxBytes)
+            var offset = 0
+            while (offset < maxBytes) {
+                val read = input.read(buffer, offset, maxBytes - offset)
+                if (read <= 0) break
+                offset += read
+            }
+            if (offset == buffer.size) buffer else buffer.copyOf(offset)
+        }
+    }
+
     override fun close() = Unit
 }

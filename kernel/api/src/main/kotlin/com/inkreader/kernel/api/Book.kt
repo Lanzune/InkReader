@@ -14,6 +14,14 @@ interface BookSource {
     val mimeType: String?
     val size: Long
     fun readAll(): ByteArray
+
+    /** First [maxBytes] bytes; formats use this for a cheap first screen. */
+    fun readPrefix(maxBytes: Int): ByteArray {
+        if (maxBytes <= 0) return ByteArray(0)
+        val all = readAll()
+        return if (all.size <= maxBytes) all else all.copyOf(maxBytes)
+    }
+
     fun close()
 
     /** Optional local file for formats that can use random access (EPUB preview). */

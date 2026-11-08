@@ -9,6 +9,7 @@ import android.net.Uri
 import android.provider.OpenableColumns
 import com.inkreader.kernel.api.BookReadException
 import com.inkreader.kernel.api.BookSource
+import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.IOException
 import java.security.MessageDigest
@@ -52,6 +53,34 @@ class ContentBookSource(
         val cached = preparedFile
         if (cached != null) return cached.readBytes()
         return bytes
+    }
+
+    override fun readPrefix(maxBytes: Int): ByteArray {
+        if (maxBytes <= 0) return ByteArray(0)
+        preparedFile?.let { file ->
+            return file.inputStream().use { input -> readUpTo(input, maxBytes) }
+        }
+        return try {
+            resolver.openInputStream(uri)?.use { input -> readUpTo(input, maxBytes) }
+                ?: ByteArray(0)
+        } catch (_: IOException) {
+            ByteArray(0)
+        } catch (_: SecurityException) {
+            ByteArray(0)
+        }
+    }
+
+    private fun readUpTo(input: java.io.InputStream, maxBytes: Int): ByteArray {
+        val output = ByteArrayOutputStream(minOf(maxBytes, 64 * 1024))
+        val buffer = ByteArray(16 * 1024)
+        var remaining = maxBytes
+        while (remaining > 0) {
+            val read = input.read(buffer, 0, minOf(buffer.size, remaining))
+            if (read <= 0) break
+            output.write(buffer, 0, read)
+            remaining -= read
+        }
+        return output.toByteArray()
     }
 
     /**

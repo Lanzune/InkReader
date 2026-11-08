@@ -28,8 +28,24 @@ class TxtFormatProvider : FormatProvider {
         return if (looksLikeTxt) FormatMatch(id, 60) else null
     }
 
-    override fun open(source: BookSource, context: OpenContext): BookDocument {
-        val bytes = source.readAll()
+    override fun open(source: BookSource, context: OpenContext): BookDocument =
+        buildDocument(source.readAll(), context)
+
+    /**
+     * Cheap first screen: decode only the beginning of the file. The caller
+     * rejects it when the saved offset falls outside this prefix.
+     */
+    fun openPreview(
+        source: BookSource,
+        context: OpenContext,
+        maxBytes: Int = 256 * 1024,
+    ): BookDocument? {
+        val prefix = source.readPrefix(maxBytes)
+        if (prefix.isEmpty()) return null
+        return runCatching { buildDocument(prefix, context) }.getOrNull()
+    }
+
+    private fun buildDocument(bytes: ByteArray, context: OpenContext): BookDocument {
         val decoded = TxtDecoder.decode(bytes, context.encoding)
         if (decoded.text.isBlank()) {
             throw IllegalArgumentException("TXT 文件为空或无法解码")

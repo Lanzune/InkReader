@@ -37,6 +37,20 @@ class TxtFormatProviderTest {
     }
 
     @Test
+    fun previewReadsOnlyTheRequestedPrefix() {
+        val text = "A".repeat(100) + "末尾内容"
+        val source = FakeSource("sample.txt", "text/plain", text.toByteArray(StandardCharsets.UTF_8))
+
+        val preview = provider.openPreview(
+            source,
+            com.inkreader.kernel.api.OpenContext(source.displayName, source.mimeType),
+            maxBytes = 16,
+        )
+
+        assertEquals("A".repeat(16), preview?.chapters?.single()?.text)
+    }
+
+    @Test
     fun decodesGb18030() {
         val text = "这是简体中文测试，编码应该是GB18030。"
         val bytes = text.toByteArray(Charset.forName("GB18030"))

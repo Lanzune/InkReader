@@ -55,6 +55,19 @@ class HtmlMarkdownFormatProviderTest {
     }
 
     @Test
+    fun previewReadsOnlyTheRequestedPrefix() {
+        val text = "paragraph ".repeat(100)
+        val source = FakeSource("note.md", "text/markdown", text.toByteArray())
+        val preview = provider.openPreview(
+            source,
+            OpenContext(source.displayName, source.mimeType),
+            maxBytes = 32,
+        )
+        assertTrue(preview != null)
+        assertTrue(preview!!.chapters.single().text.length < text.length)
+    }
+
+    @Test
     fun decodesGbkMarkdown() {
         val source = FakeSource(
             "gbk.md",

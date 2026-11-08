@@ -38,8 +38,25 @@ class HtmlMarkdownFormatProvider : FormatProvider {
         }
     }
 
-    override fun open(source: BookSource, context: OpenContext): BookDocument {
-        val decoded = TxtDecoder.decode(source.readAll(), context.encoding)
+    override fun open(source: BookSource, context: OpenContext): BookDocument =
+        buildDocument(source.readAll(), context)
+
+    /**
+     * Cheap first screen. Markdown/HTML prefix may end mid-block, but it still
+     * yields readable text; the full document replaces it after parsing.
+     */
+    fun openPreview(
+        source: BookSource,
+        context: OpenContext,
+        maxBytes: Int = 256 * 1024,
+    ): BookDocument? {
+        val prefix = source.readPrefix(maxBytes)
+        if (prefix.isEmpty()) return null
+        return runCatching { buildDocument(prefix, context) }.getOrNull()
+    }
+
+    private fun buildDocument(bytes: ByteArray, context: OpenContext): BookDocument {
+        val decoded = TxtDecoder.decode(bytes, context.encoding)
         if (decoded.text.isBlank()) throw BookReadException("文档为空")
         val name = context.displayName.lowercase()
         val isMarkdown = name.endsWith(".md") || name.endsWith(".markdown") ||

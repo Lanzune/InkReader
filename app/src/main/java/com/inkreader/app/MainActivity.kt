@@ -108,13 +108,20 @@ import kotlin.math.roundToInt
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        val initialUri = if (savedInstanceState == null) {
+            intent?.data?.toString()
+        } else {
+            null
+        }
         setContent {
             MaterialTheme {
-                InkReaderApp()
+                InkReaderApp(initialUri = initialUri)
             }
         }
     }
 }
+
+private const val PREVIEW_SWITCH_MARGIN = 6_000
 
 private sealed interface Screen {
     data object Home : Screen
@@ -131,7 +138,7 @@ private sealed interface Screen {
 }
 
 @Composable
-private fun InkReaderApp() {
+private fun InkReaderApp(initialUri: String? = null) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val readingState = remember(context) { ReadingStateStore(context) }
@@ -142,6 +149,8 @@ private fun InkReaderApp() {
     var saved: SavedReading? by remember { mutableStateOf(readingState.load()) }
     var settings: ReaderSettings by remember { mutableStateOf(settingsStore.load()) }
     var screen: Screen by remember { mutableStateOf(Screen.Home) }
+    var initialUriHandled by remember { mutableStateOf(false) }
+    var pendingFullReading by remember { mutableStateOf<Screen.Reading?>(null) }
     var error: String? by remember { mutableStateOf(null) }
     var pluginSnapshot: PluginSnapshot? by remember { mutableStateOf(null) }
     var pluginError: String? by remember { mutableStateOf(null) }
@@ -298,6 +307,7 @@ private fun InkReaderApp() {
     }
 
     fun openUri(uri: Uri, encoding: String? = null, initialOffset: Int = 0) {
+        pendingFullReading = null
         try {
             context.contentResolver.takePersistableUriPermission(
                 uri,
@@ -335,23 +345,40 @@ private fun InkReaderApp() {
                             .indexOfLast { mark -> mark.charOffset <= resumeOffset }
                             .coerceAtLeast(0)
                         val previewChapters = previewChapterCount(knownMarks, startChapter)
-                        val preview = if (cached?.first != key && source.localFile() != null &&
-                            mimeTypeForName(source.displayName) == "application/epub+zip"
-                        ) {
-                            runCatching {
-                                EpubFormatProvider().openPreview(
-                                    source,
-                                    OpenContext(source.displayName, source.mimeType, encoding),
-                                    maxChapters = previewChapters,
-                                    startChapter = startChapter,
-                                    knownMarks = knownMarks,
-                                )?.takeIf { previewBook ->
-                                    val chapter = previewBook.chapters.firstOrNull()
-                                    val base = chapter?.baseOffset ?: 0
-                                    val end = base + (chapter?.text?.length ?: 0)
-                                    resumeOffset in base..end
-                                }
-                            }.getOrNull()
+                        val preview = if (cached?.first != key) {
+                            val openContext = OpenContext(
+                                source.displayName,
+                                source.mimeType,
+                                encoding,
+                            )
+                            val formatMime = mimeTypeForName(source.displayName)
+                                ?: source.mimeType
+                            val candidate = when {
+                                formatMime == "application/epub+zip" &&
+                                    source.localFile() != null -> runCatching {
+                                    EpubFormatProvider().openPreview(
+                                        source,
+                                        openContext,
+                                        maxChapters = previewChapters,
+                                        startChapter = startChapter,
+                                        knownMarks = knownMarks,
+                                    )
+                                }.getOrNull()
+                                formatMime == "text/plain" -> runCatching {
+                                    TxtFormatProvider().openPreview(source, openContext)
+                                }.getOrNull()
+                                formatMime == "text/markdown" ||
+                                    formatMime == "text/html" -> runCatching {
+                                    HtmlMarkdownFormatProvider().openPreview(source, openContext)
+                                }.getOrNull()
+                                else -> null
+                            }
+                            candidate?.takeIf { previewBook ->
+                                val chapter = previewBook.chapters.firstOrNull()
+                                val base = chapter?.baseOffset ?: 0
+                                val end = base + (chapter?.text?.length ?: 0)
+                                resumeOffset in base..end
+                            }
                         } else {
                             null
                         }
@@ -420,7 +447,23 @@ private fun InkReaderApp() {
                 )
                 readingState.save(record.uri, record.title, record.charOffset, record.encoding)
                 saved = record
-                screen = Screen.Reading(book, uri, encoding, resumeOffset)
+                val fullScreen = Screen.Reading(book, uri, encoding, resumeOffset)
+                val preview = current as? Screen.Reading
+                val previewEnd = preview?.let { reading ->
+                    val chapter = reading.book.chapters.firstOrNull()
+                    (chapter?.baseOffset ?: 0) + (chapter?.text?.length ?: 0)
+                } ?: 0
+                if (preview != null && preview.partial && preview.uri == uri &&
+                    resumeOffset < previewEnd - PREVIEW_SWITCH_MARGIN
+                ) {
+                    // Keep the responsive window while the user is well inside it.
+                    // The full document is applied when the TOC is opened or the
+                    // reader approaches the end of the window.
+                    pendingFullReading = fullScreen
+                } else {
+                    pendingFullReading = null
+                    screen = fullScreen
+                }
             }.onFailure { failure ->
                 if (screen is Screen.Reading) {
                     error = failure.message ?: "完整内容加载失败"
@@ -436,6 +479,13 @@ private fun InkReaderApp() {
         contract = ActivityResultContracts.OpenDocument(),
     ) { uri ->
         if (uri != null) openUri(uri)
+    }
+
+    LaunchedEffect(initialUri) {
+        if (!initialUriHandled && !initialUri.isNullOrBlank()) {
+            initialUriHandled = true
+            openUri(Uri.parse(initialUri))
+        }
     }
 
     val debuggable = remember(context) {
@@ -592,7 +642,10 @@ private fun InkReaderApp() {
                             saved = record
                         }
                     },
-                    onBack = { screen = Screen.Home },
+                    onBack = {
+                        pendingFullReading = null
+                        screen = Screen.Home
+                    },
                 )
             } else {
                 ReaderScreen(
@@ -605,6 +658,13 @@ private fun InkReaderApp() {
                     initialCharOffset = current.initialOffset,
                     partial = current.partial,
                     totalChars = current.totalChars,
+                    fullBookReady = pendingFullReading != null,
+                    onRequestFull = {
+                        pendingFullReading?.let { pending ->
+                            pendingFullReading = null
+                            screen = pending
+                        }
+                    },
                     onSettingsChange = { updated ->
                         settings = updated
                         settingsStore.save(updated)
@@ -629,7 +689,10 @@ private fun InkReaderApp() {
                             saved = record
                         }
                     },
-                    onBack = { screen = Screen.Home },
+                    onBack = {
+                        pendingFullReading = null
+                        screen = Screen.Home
+                    },
                 )
             }
         }
@@ -853,6 +916,8 @@ private fun ReaderScreen(
     initialCharOffset: Int,
     partial: Boolean,
     totalChars: Int,
+    fullBookReady: Boolean,
+    onRequestFull: () -> Unit,
     onSettingsChange: (ReaderSettings) -> Unit,
     onEncodingChange: (String?, Int) -> Unit,
     onProgress: (Int) -> Unit,
@@ -896,6 +961,7 @@ private fun ReaderScreen(
         }
     }
     var pageInfo by remember { mutableStateOf(PageInfo(0, 1)) }
+    var requestedFull by remember(bookKey) { mutableStateOf(false) }
     var controlsVisible by remember { mutableStateOf(true) }
     var tocVisible by remember { mutableStateOf(false) }
     var settingsVisible by remember { mutableStateOf(false) }
@@ -975,6 +1041,13 @@ private fun ReaderScreen(
                     onPageChanged = { info ->
                         pageInfo = info
                         onProgress(info.charOffset)
+                        val previewEnd = chapter.baseOffset + chapter.text.length
+                        if (partial && !requestedFull &&
+                            info.charOffset >= previewEnd - PREVIEW_SWITCH_MARGIN
+                        ) {
+                            requestedFull = true
+                            onRequestFull()
+                        }
                     }
                     onCenterTap = { controlsVisible = !controlsVisible }
                     onLinkTap = { target ->
@@ -1077,7 +1150,15 @@ private fun ReaderScreen(
                 )
                 if (book.toc.isNotEmpty()) {
                     Box {
-                        TextButton(onClick = { tocVisible = true }) {
+                        TextButton(
+                            onClick = {
+                                if (partial && !requestedFull && fullBookReady) {
+                                    requestedFull = true
+                                    onRequestFull()
+                                }
+                                tocVisible = true
+                            },
+                        ) {
                             Text("目录", color = Color(theme.foreground))
                         }
                         DropdownMenu(
