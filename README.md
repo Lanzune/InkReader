@@ -14,7 +14,7 @@
 
 ## 当前状态
 
-**阶段：M8a 首屏优化（0.8.0），仍未达到 1 秒目标。**
+**阶段：M8a.1 图片预加载（0.8.1），待真机授权验证。**
 
 - M0～M2：TXT 阅读器完成，标签 `m2-txt-reader`
 - M3：EPUB 完成，标签 `m3-epub`
@@ -23,11 +23,13 @@
 - M6：manifest、`.inkp` 安装、启停/卸载，标签 `m6-plugins`
 - M7：R8 release、正式签名、AGPL-3.0-only，标签 `v0.7.2`
 - M8a：首屏局部排版、并行 EPUB 解析、后台富文本/分页、内存缓存，0.8.0
+- M8a.1：页面图片预加载，去掉绘制时解码，0.8.1
 - 当前大书 12.5 MB：基线 8.4 s → 首屏约 2.2 s
 - 后续：章节懒加载，目标首屏 <1 s
 
 性能测试：`scripts/bench-open.cmd -Runs 5`
 性能记录：[perf-phase1](docs/quality/2026-11-08-perf-phase1.md)
+图片预加载：[image-preload](docs/quality/2026-11-08-image-preload.md)
 
 下一步：M8b 章节懒加载。
 

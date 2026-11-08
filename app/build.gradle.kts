@@ -23,8 +23,8 @@ android {
         applicationId = "com.inkreader.app"
         minSdk = 26
         targetSdk = 36
-        versionCode = 37
-        versionName = "0.8.0"
+        versionCode = 38
+        versionName = "0.8.1"
     }
 
     buildFeatures {

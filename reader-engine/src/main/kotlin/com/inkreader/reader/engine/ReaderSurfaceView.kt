@@ -13,6 +13,7 @@ import android.text.Spanned
 import android.text.StaticLayout
 import android.text.TextPaint
 import android.text.TextDirectionHeuristics
+import android.text.style.ImageSpan
 import android.util.TypedValue
 import android.view.GestureDetector
 import android.view.MotionEvent
@@ -160,12 +161,14 @@ class ReaderSurfaceView(context: Context) : View(context) {
             localPageNumber = 0
             currentPage = 0
             renderedPageKey = -1
+            preloadPageImages(localPageStart, localPageEnd)
             notifyPage()
             invalidate()
             return
         }
         currentPage = pageForOffset(charOffset)
         renderedPageKey = -1
+        preloadPageImages(pageStart(currentPage), pageEnd(currentPage))
         invalidate()
         notifyPage()
     }
@@ -212,6 +215,8 @@ class ReaderSurfaceView(context: Context) : View(context) {
             localPageNumber += 1
             currentPage = 0
             renderedPageKey = -1
+            preloadPageImages(localPageStart, localPageEnd)
+            preloadPageImages(localPageEnd, localPageEndFor(localPageEnd))
             notifyPage()
             invalidate()
             return true
@@ -221,6 +226,8 @@ class ReaderSurfaceView(context: Context) : View(context) {
         val snapshot = if (pageTurnAnimationEnabled) capturePage() else null
         currentPage += 1
         renderedPageKey = -1
+        preloadPageImages(pageStart(currentPage), pageEnd(currentPage))
+        preloadPageImages(pageEnd(currentPage), pageStart(currentPage + 1))
         notifyPage()
         if (snapshot != null) startPageAnimation(snapshot, 1) else invalidate()
         return true
@@ -234,6 +241,7 @@ class ReaderSurfaceView(context: Context) : View(context) {
             localPageNumber = (localPageNumber - 1).coerceAtLeast(0)
             currentPage = 0
             renderedPageKey = -1
+            preloadPageImages(localPageStart, localPageEnd)
             notifyPage()
             invalidate()
             return true
@@ -243,6 +251,7 @@ class ReaderSurfaceView(context: Context) : View(context) {
         val snapshot = if (pageTurnAnimationEnabled) capturePage() else null
         currentPage -= 1
         renderedPageKey = -1
+        preloadPageImages(pageStart(currentPage), pageEnd(currentPage))
         notifyPage()
         if (snapshot != null) startPageAnimation(snapshot, -1) else invalidate()
         return true
@@ -266,6 +275,9 @@ class ReaderSurfaceView(context: Context) : View(context) {
 
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
+        val start = if (textLayout == null) localPageStart else pageStart(currentPage)
+        val end = if (textLayout == null) localPageEnd else pageEnd(currentPage)
+        if (hasPendingPageImages(start, end)) return
         drawCurrentPage(canvas)
         val bitmap = pageBitmap ?: return
         val offset = if (animationDirection > 0) {
@@ -387,6 +399,9 @@ class ReaderSurfaceView(context: Context) : View(context) {
         renderedPageKey = -1
         currentPage = 0
         buildLocalPage(restoreOffset.coerceIn(0, content.length))
+        preloadPageImages(localPageStart, localPageEnd)
+        val nextEnd = localPageEndFor(localPageEnd)
+        preloadPageImages(localPageEnd, nextEnd)
         notifyPage()
         invalidate()
 
@@ -420,6 +435,8 @@ class ReaderSurfaceView(context: Context) : View(context) {
                 renderedPageLayout = null
                 renderedPageKey = -1
                 currentPage = pageForOffset(anchor)
+                preloadPageImages(pageStart(currentPage), pageEnd(currentPage))
+                preloadPageImages(pageEnd(currentPage), pageStart(currentPage + 1))
                 notifyPage()
                 invalidate()
             }
@@ -454,6 +471,17 @@ class ReaderSurfaceView(context: Context) : View(context) {
             localPageEnd = safeOffset
             return
         }
+        val end = localPageEndFor(safeOffset)
+        val page = content.subSequence(safeOffset, end)
+        localPageLayout = buildStaticLayout(page, textPaint, contentWidth, style.lineSpacingMultiplier)
+        localPageStart = safeOffset
+        localPageEnd = end
+    }
+
+    private fun localPageEndFor(offset: Int): Int {
+        val safeOffset = offset.coerceIn(0, content.length)
+        val windowEnd = (safeOffset + LOCAL_WINDOW_CHARS).coerceAtMost(content.length)
+        if (windowEnd <= safeOffset) return safeOffset
         val window = content.subSequence(safeOffset, windowEnd)
         val layout = buildStaticLayout(window, textPaint, contentWidth, style.lineSpacingMultiplier)
         var endLine = 0
@@ -463,19 +491,54 @@ class ReaderSurfaceView(context: Context) : View(context) {
             endLine += 1
         }
         if (endLine == 0) endLine = 1
-        val end = if (endLine < layout.lineCount) {
+        return if (endLine < layout.lineCount) {
             (safeOffset + layout.getLineStart(endLine)).coerceAtMost(content.length)
         } else {
             windowEnd
         }.coerceAtLeast(safeOffset + 1)
-        val page = if (end < windowEnd) {
-            content.subSequence(safeOffset, end)
-        } else {
-            window
+    }
+
+    private fun pageStart(page: Int): Int {
+        val full = textLayout
+        if (full != null && pageStarts.isNotEmpty()) {
+            val line = pageStarts[page.coerceIn(0, pageStarts.size - 1)]
+            return full.getLineStart(line).coerceIn(0, content.length)
         }
-        localPageLayout = buildStaticLayout(page, textPaint, contentWidth, style.lineSpacingMultiplier)
-        localPageStart = safeOffset
-        localPageEnd = end
+        return if (page <= localPageNumber) localPageStart else localPageEnd
+    }
+
+    private fun pageEnd(page: Int): Int {
+        val full = textLayout
+        if (full != null && pageStarts.isNotEmpty()) {
+            val next = page + 1
+            if (next < pageStarts.size) {
+                return full.getLineStart(pageStarts[next]).coerceIn(0, content.length)
+            }
+            return content.length
+        }
+        return localPageEnd
+    }
+
+    private fun preloadPageImages(start: Int, end: Int) {
+        if (start >= end) return
+        val spanned = content as? Spanned ?: return
+        val spans = spanned.getSpans(start, end, ImageSpan::class.java)
+        if (spans.isEmpty()) return
+        for (span in spans) {
+            val image = span.drawable as? AsyncPageImage ?: continue
+            if (!image.isReady) {
+                image.preload { postInvalidateOnAnimation() }
+            }
+        }
+    }
+
+    private fun hasPendingPageImages(start: Int, end: Int): Boolean {
+        if (start >= end) return false
+        val spanned = content as? Spanned ?: return false
+        return spanned.getSpans(start, end, ImageSpan::class.java).any { span ->
+            val image = span.drawable as? AsyncPageImage
+            image != null && !image.isReady
+        }
     }
 
     private fun buildLocalPageBefore(offset: Int): Boolean {
