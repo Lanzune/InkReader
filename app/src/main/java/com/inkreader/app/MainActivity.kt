@@ -59,6 +59,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -864,6 +865,11 @@ private fun ReaderScreen(
     var appliedText by remember(bookKey) { mutableStateOf<CharSequence?>(null) }
     var pendingOffset by remember(bookKey) { mutableStateOf<Int?>(initialCharOffset) }
     var pageReady by remember(bookKey) { mutableStateOf(false) }
+    val pageIndexStore = remember(context) { PageIndexStore(context) }
+    val saveScope = rememberCoroutineScope()
+    val latestPartial = rememberUpdatedState(partial)
+    var loadedPageSignature by remember(bookKey) { mutableStateOf<String?>(null) }
+    var pageIndexAvailable by remember(bookKey) { mutableStateOf(false) }
     LaunchedEffect(bookKey, chapter, book.resources) {
         if (!needsRichText) {
             readerText = chapter.text
@@ -873,6 +879,21 @@ private fun ReaderScreen(
             buildReaderText(context, chapter, book.resources, bookKey)
         }
         readerText = rich
+    }
+
+    fun syncPageIndex(surface: ReaderSurfaceView) {
+        if (surface.width <= 0 || surface.height <= 0) return
+        val signature = surface.layoutSignature()
+        if (signature == loadedPageSignature) return
+        loadedPageSignature = signature
+        val hint = pageIndexStore.load(bookKey, signature)
+        if (hint != null) {
+            surface.applyPageIndex(hint)
+            pageIndexAvailable = true
+        } else {
+            surface.clearPageIndex()
+            pageIndexAvailable = false
+        }
     }
     var pageInfo by remember { mutableStateOf(PageInfo(0, 1)) }
     var controlsVisible by remember { mutableStateOf(true) }
@@ -963,15 +984,33 @@ private fun ReaderScreen(
                     onPageReady = {
                         pageReady = true
                     }
-                    setContent(readerText ?: "", theme, initialCharOffset, chapter.baseOffset)
+                    pageIndexSaveEnabled = !partial
+                    onPageIndexReady = { starts ->
+                        if (!latestPartial.value) {
+                            val signature = layoutSignature()
+                            saveScope.launch(Dispatchers.IO) {
+                                pageIndexStore.save(bookKey, signature, starts)
+                            }
+                        }
+                    }
+                    setContent(
+                        readerText ?: "",
+                        theme,
+                        initialCharOffset,
+                        chapter.baseOffset,
+                        isFullBook = !partial,
+                    )
                     appliedText = readerText
                     readerView = this
+                    post { syncPageIndex(this) }
                 }
             },
             update = { surface ->
                 surface.pageTurnAnimationEnabled = settings.pageTurnAnimation
                 surface.setTheme(theme)
                 surface.applyStyle(style)
+                surface.pageIndexSaveEnabled = !partial
+                syncPageIndex(surface)
                 if (appliedText !== readerText) {
                     val restoreOffset = pendingOffset ?: surface.currentCharOffset()
                     surface.setContent(
@@ -979,6 +1018,7 @@ private fun ReaderScreen(
                         theme,
                         restoreOffset,
                         chapter.baseOffset,
+                        isFullBook = !partial,
                     )
                     appliedText = readerText
                     pendingOffset = null
@@ -1021,6 +1061,8 @@ private fun ReaderScreen(
                 )
                 Text(
                     text = when {
+                        pageIndexAvailable && pageInfo.pageCount > 0 ->
+                            "${pageInfo.page + 1}/${pageInfo.pageCount}"
                         partial && totalChars > 0 -> {
                             val tenths = (pageInfo.charOffset * 1000L / totalChars)
                                 .coerceIn(0L, 1000L)

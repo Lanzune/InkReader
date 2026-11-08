@@ -64,15 +64,19 @@ class ReaderSurfaceView(context: Context) : View(context) {
     private var localPageStart = 0
     private var localPageEnd = 0
     private var localPageNumber = 0
+    private var pageHint: IntArray? = null
+    private var fullBookContent = false
     private val layoutScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private val LOCAL_WINDOW_CHARS = 16_000
 
     var pageTurnAnimationEnabled: Boolean = true
+    var pageIndexSaveEnabled: Boolean = true
 
     var onPageChanged: ((PageInfo) -> Unit)? = null
     var onCenterTap: (() -> Unit)? = null
     var onLinkTap: ((Int) -> Unit)? = null
     var onPageReady: (() -> Unit)? = null
+    var onPageIndexReady: ((IntArray) -> Unit)? = null
     private var pageDrawn = false
 
     private val contentLeft get() = paddingLeft
@@ -132,6 +136,7 @@ class ReaderSurfaceView(context: Context) : View(context) {
         releasePageSnapshot()
         val restoreOffset = currentCharOffset() - contentBaseOffset
         style = newStyle
+        pageHint = null
         textPaint.textSize = sp(style.fontSizeSp)
         setPadding(dp(style.horizontalPaddingDp), dp(76), dp(style.horizontalPaddingDp), dp(52))
         renderedPageKey = -1
@@ -140,15 +145,54 @@ class ReaderSurfaceView(context: Context) : View(context) {
         }
     }
 
+    /** Stable key for the persisted page index; layout-affecting values only. */
+    fun layoutSignature(): String =
+        "v1|$contentWidth|$paginationHeight|${textPaint.textSize.toInt()}|" +
+            "${style.fontSizeSp}|${style.lineSpacingMultiplier}"
+
+    /**
+     * Applies a persisted full-book page map before the full StaticLayout is
+     * ready, so the page counter is complete on the first frame.
+     */
+    fun applyPageIndex(starts: IntArray?) {
+        pageHint = starts?.takeIf { it.isNotEmpty() }
+        if (pageHint == null) {
+            notifyPage()
+            return
+        }
+        if (textLayout == null) {
+            val global = contentBaseOffset + localPageStart
+            val page = hintPageForGlobal(global)
+            val start = hintStartLocal(page) ?: return
+            val end = hintEndLocal(page)
+            buildLocalPage(start, end)
+            localPageNumber = page
+            renderedPageKey = -1
+            preloadPageImages(localPageStart, localPageEnd)
+            invalidate()
+        }
+        notifyPage()
+    }
+
+    fun clearPageIndex() {
+        if (pageHint == null) return
+        pageHint = null
+        notifyPage()
+    }
+
+    fun hasPageIndex(): Boolean = pageHint != null
+
     fun setContent(
         text: CharSequence,
         readerTheme: ReaderTheme = theme,
         initialCharOffset: Int = 0,
         baseOffset: Int = 0,
+        isFullBook: Boolean = false,
     ) {
         cancelPageAnimation()
         releasePageSnapshot()
         content = text
+        fullBookContent = isFullBook
         contentBaseOffset = baseOffset.coerceAtLeast(0)
         theme = readerTheme
         textPaint.color = theme.foreground
@@ -168,8 +212,9 @@ class ReaderSurfaceView(context: Context) : View(context) {
         val localOffset = (charOffset - contentBaseOffset).coerceIn(0, content.length)
         cancelPageAnimation()
         if (textLayout == null || pageStarts.isEmpty()) {
-            buildLocalPage(localOffset)
-            localPageNumber = 0
+            val page = pageHint?.let { hintPageForGlobal(contentBaseOffset + localOffset) }
+            buildLocalPage(localOffset, page?.let { hintEndLocal(it) })
+            localPageNumber = page ?: 0
             currentPage = 0
             renderedPageKey = -1
             preloadPageImages(localPageStart, localPageEnd)
@@ -220,6 +265,25 @@ class ReaderSurfaceView(context: Context) : View(context) {
 
     fun nextPage(): Boolean {
         if (textLayout == null || pageStarts.isEmpty()) {
+            val hint = pageHint
+            if (hint != null) {
+                val page = hintPageForGlobal(contentBaseOffset + localPageStart)
+                var next = page + 1
+                while (next < hint.size && (hint[next] - contentBaseOffset) <= localPageStart) {
+                    next += 1
+                }
+                if (next >= hint.size) return false
+                val start = hintStartLocal(next) ?: return false
+                cancelPageAnimation()
+                buildLocalPage(start, hintEndLocal(next))
+                localPageNumber = next
+                currentPage = 0
+                renderedPageKey = -1
+                preloadPageImages(localPageStart, localPageEnd)
+                notifyPage()
+                invalidate()
+                return true
+            }
             if (localPageEnd >= content.length) return false
             cancelPageAnimation()
             buildLocalPage(localPageEnd)
@@ -246,6 +310,25 @@ class ReaderSurfaceView(context: Context) : View(context) {
 
     fun previousPage(): Boolean {
         if (textLayout == null || pageStarts.isEmpty()) {
+            val hint = pageHint
+            if (hint != null) {
+                val page = hintPageForGlobal(contentBaseOffset + localPageStart)
+                var previous = page - 1
+                while (previous >= 0 && (hint[previous] - contentBaseOffset) >= localPageStart) {
+                    previous -= 1
+                }
+                if (previous < 0) return false
+                val start = hintStartLocal(previous) ?: return false
+                cancelPageAnimation()
+                buildLocalPage(start, hintEndLocal(previous))
+                localPageNumber = previous
+                currentPage = 0
+                renderedPageKey = -1
+                preloadPageImages(localPageStart, localPageEnd)
+                notifyPage()
+                invalidate()
+                return true
+            }
             if (localPageStart <= 0) return false
             cancelPageAnimation()
             if (!buildLocalPageBefore(localPageStart)) return false
@@ -268,16 +351,30 @@ class ReaderSurfaceView(context: Context) : View(context) {
         return true
     }
 
-    fun pageInfo(): PageInfo = PageInfo(
-        page = if (textLayout == null) localPageNumber else currentPage,
-        pageCount = pageStarts.size,
-        charOffset = currentCharOffset(),
-    )
+    fun pageInfo(): PageInfo {
+        val hint = pageHint
+        if (hint != null &&
+            (textLayout == null || pageStarts.isEmpty() || hint.size > pageStarts.size)
+        ) {
+            val offset = currentCharOffset()
+            return PageInfo(
+                page = hintPageForGlobal(offset),
+                pageCount = hint.size,
+                charOffset = offset,
+            )
+        }
+        return PageInfo(
+            page = if (textLayout == null) localPageNumber else currentPage,
+            pageCount = pageStarts.size,
+            charOffset = currentCharOffset(),
+        )
+    }
 
     override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
         super.onSizeChanged(w, h, oldw, oldh)
         cancelPageAnimation()
         releasePageSnapshot()
+        pageHint = null
         if (ready) {
             val restoreOffset = pendingCharOffset
             startLayout(restoreOffset)
@@ -415,7 +512,14 @@ class ReaderSurfaceView(context: Context) : View(context) {
         renderedPageLayout = null
         renderedPageKey = -1
         currentPage = 0
-        buildLocalPage(restoreOffset.coerceIn(0, content.length))
+        val safeRestore = restoreOffset.coerceIn(0, content.length)
+        val hintedPage = pageHint?.let { hintPageForGlobal(contentBaseOffset + safeRestore) }
+        if (hintedPage != null) {
+            buildLocalPage(hintStartLocal(hintedPage) ?: safeRestore, hintEndLocal(hintedPage))
+            localPageNumber = hintedPage
+        } else {
+            buildLocalPage(safeRestore)
+        }
         preloadPageImages(localPageStart, localPageEnd)
         val nextEnd = localPageEndFor(localPageEnd)
         preloadPageImages(localPageEnd, nextEnd)
@@ -452,8 +556,17 @@ class ReaderSurfaceView(context: Context) : View(context) {
                 renderedPageLayout = null
                 renderedPageKey = -1
                 currentPage = pageForOffset(anchor)
+                if (fullBookContent && pageHint != null && pageHint?.size != pageStarts.size) {
+                    pageHint = null
+                }
                 preloadPageImages(pageStart(currentPage), pageEnd(currentPage))
                 preloadPageImages(pageEnd(currentPage), pageStart(currentPage + 1))
+                if (pageIndexSaveEnabled) {
+                    val offsets = IntArray(pageStarts.size) { index ->
+                        contentBaseOffset + layout.getLineStart(pageStarts[index])
+                    }
+                    onPageIndexReady?.invoke(offsets)
+                }
                 notifyPage()
                 invalidate()
             }
@@ -479,7 +592,7 @@ class ReaderSurfaceView(context: Context) : View(context) {
      * Lays out one page directly instead of laying out the whole book.
      * This is the first-screen path; the full page index refreshes later.
      */
-    private fun buildLocalPage(offset: Int) {
+    private fun buildLocalPage(offset: Int, endOverride: Int? = null) {
         val safeOffset = offset.coerceIn(0, content.length)
         val windowEnd = (safeOffset + LOCAL_WINDOW_CHARS).coerceAtMost(content.length)
         if (windowEnd <= safeOffset) {
@@ -488,7 +601,9 @@ class ReaderSurfaceView(context: Context) : View(context) {
             localPageEnd = safeOffset
             return
         }
-        val end = localPageEndFor(safeOffset)
+        val end = endOverride
+            ?.coerceIn(safeOffset + 1, content.length)
+            ?: localPageEndFor(safeOffset)
         val page = content.subSequence(safeOffset, end)
         localPageLayout = buildStaticLayout(page, textPaint, contentWidth, style.lineSpacingMultiplier)
         localPageStart = safeOffset
@@ -521,6 +636,9 @@ class ReaderSurfaceView(context: Context) : View(context) {
             val line = pageStarts[page.coerceIn(0, pageStarts.size - 1)]
             return full.getLineStart(line).coerceIn(0, content.length)
         }
+        pageHint?.let { hint ->
+            return hintStartLocal(page.coerceIn(0, hint.size - 1)) ?: localPageStart
+        }
         return if (page <= localPageNumber) localPageStart else localPageEnd
     }
 
@@ -533,7 +651,43 @@ class ReaderSurfaceView(context: Context) : View(context) {
             }
             return content.length
         }
+        pageHint?.let { hint ->
+            return hintEndLocal(page.coerceIn(0, hint.size - 1))
+        }
         return localPageEnd
+    }
+
+    private fun hintPageForGlobal(globalOffset: Int): Int {
+        val hint = pageHint ?: return 0
+        var low = 0
+        var high = hint.lastIndex
+        var result = 0
+        while (low <= high) {
+            val middle = (low + high) ushr 1
+            if (hint[middle] <= globalOffset) {
+                result = middle
+                low = middle + 1
+            } else {
+                high = middle - 1
+            }
+        }
+        return result
+    }
+
+    private fun hintStartLocal(page: Int): Int? {
+        val hint = pageHint ?: return null
+        val start = hint.getOrNull(page) ?: return null
+        return (start - contentBaseOffset).coerceIn(0, content.length)
+    }
+
+    private fun hintEndLocal(page: Int): Int {
+        val hint = pageHint ?: return content.length
+        val next = hint.getOrNull(page + 1)
+        return if (next != null) {
+            (next - contentBaseOffset).coerceIn(0, content.length)
+        } else {
+            content.length
+        }
     }
 
     private fun preloadPageImages(start: Int, end: Int) {
