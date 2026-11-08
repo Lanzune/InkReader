@@ -37,6 +37,7 @@ class BookIndexStore(context: Context) {
                             path = path,
                             charOffset = item.optInt(KEY_OFFSET).coerceAtLeast(0),
                             length = item.optInt(KEY_LENGTH).coerceAtLeast(0),
+                            spineIndex = item.optInt(KEY_SPINE).coerceAtLeast(0),
                         ),
                     )
                 }
@@ -55,7 +56,8 @@ class BookIndexStore(context: Context) {
                     JSONObject()
                         .put(KEY_PATH, mark.path)
                         .put(KEY_OFFSET, mark.charOffset)
-                        .put(KEY_LENGTH, mark.length),
+                        .put(KEY_LENGTH, mark.length)
+                        .put(KEY_SPINE, mark.spineIndex),
                 )
             }
             val root = JSONObject().put(KEY_CHAPTERS, array)
@@ -81,5 +83,6 @@ class BookIndexStore(context: Context) {
         const val KEY_PATH = "path"
         const val KEY_OFFSET = "offset"
         const val KEY_LENGTH = "length"
+        const val KEY_SPINE = "spine"
     }
 }

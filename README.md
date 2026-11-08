@@ -14,7 +14,7 @@
 
 ## 当前状态
 
-**阶段：M8c 完成。打开即时显示全书页码，EPUB/TXT/Markdown 首屏均已压缩。**
+**阶段：M8d 大书安全模式与格式矩阵完成，0.8.5。**
 
 - M0～M2：TXT 阅读器完成，标签 `m2-txt-reader`
 - M3：EPUB 完成，标签 `m3-epub`
@@ -26,7 +26,8 @@
 - M8b：EPUB 预览加载（ZipFile 随机读 + 前 8 章 + 后台全量），0.8.2
 - M8b.1：content URI 本地缓存、目标章索引、章节窗口、图片位图复用，0.8.3
 - M8c：持久页索引、TXT/HTML/MD 前缀首屏、PDF 基准、按需切换完整书，0.8.4
-- 后续：M8d 大书完全懒加载、低端机与全格式验收
+- M8d：大 EPUB 安全模式、4 章窗口追加、格式矩阵，0.8.5
+- 后续：低端机实机验收、大书完整页索引、发布收尾
 
 性能测试：`scripts/bench-open.cmd -Runs 5`
 性能记录：[perf-phase1](docs/quality/2026-11-08-perf-phase1.md)
@@ -36,8 +37,9 @@ EPUB 预览：[m8b-preview](docs/quality/2026-11-08-m8b-preview.md)
 即时全书页码：[m8c-page-index](docs/quality/2026-11-08-m8c-page-index.md)
 文本首屏与 PDF：[m8c-text-pdf](docs/quality/2026-11-08-m8c-text-pdf.md)
 按需完整书：[m8c-on-demand](docs/quality/2026-11-08-m8c-on-demand.md)
+大书与格式矩阵：[m8d-large-and-matrix](docs/quality/2026-11-08-m8d-large-and-matrix.md)
 
-下一步：M8d 大书完全懒加载。
+下一步：低端机验收与大书完整页索引。
 
 ## 目录结构
 

@@ -84,6 +84,8 @@ data class ChapterMark(
     val path: String,
     val charOffset: Int,
     val length: Int,
+    /** Position in the EPUB spine; used to append the next window. */
+    val spineIndex: Int = 0,
 )
 
 data class TocEntry(

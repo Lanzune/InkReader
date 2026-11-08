@@ -4,6 +4,7 @@
 package com.inkreader.app
 
 import android.app.Activity
+import android.app.ActivityManager
 import android.content.Context
 import android.content.ContextWrapper
 import android.content.Intent
@@ -122,6 +123,9 @@ class MainActivity : ComponentActivity() {
 }
 
 private const val PREVIEW_SWITCH_MARGIN = 6_000
+private const val LARGE_EPUB_FULL_PARSE_BYTES = 48L * 1024 * 1024
+private const val LARGE_PREVIEW_CHAPTERS = 2
+private const val LARGE_PREVIEW_IMAGE_BYTES = 12 * 1024 * 1024
 
 private sealed interface Screen {
     data object Home : Screen
@@ -134,6 +138,7 @@ private sealed interface Screen {
         val persistProgress: Boolean = true,
         val partial: Boolean = false,
         val totalChars: Int = 0,
+        val lazyLarge: Boolean = false,
     ) : Screen
 }
 
@@ -151,6 +156,11 @@ private fun InkReaderApp(initialUri: String? = null) {
     var screen: Screen by remember { mutableStateOf(Screen.Home) }
     var initialUriHandled by remember { mutableStateOf(false) }
     var pendingFullReading by remember { mutableStateOf<Screen.Reading?>(null) }
+    var largeBookMode by remember { mutableStateOf(false) }
+    var largeBookFile by remember { mutableStateOf<File?>(null) }
+    var largeBookName by remember { mutableStateOf<String?>(null) }
+    var largeBookMime by remember { mutableStateOf<String?>(null) }
+    var extendingLargeBook by remember { mutableStateOf(false) }
     var error: String? by remember { mutableStateOf(null) }
     var pluginSnapshot: PluginSnapshot? by remember { mutableStateOf(null) }
     var pluginError: String? by remember { mutableStateOf(null) }
@@ -308,6 +318,11 @@ private fun InkReaderApp(initialUri: String? = null) {
 
     fun openUri(uri: Uri, encoding: String? = null, initialOffset: Int = 0) {
         pendingFullReading = null
+        largeBookMode = false
+        largeBookFile = null
+        largeBookName = null
+        largeBookMime = null
+        extendingLargeBook = false
         try {
             context.contentResolver.takePersistableUriPermission(
                 uri,
@@ -345,23 +360,46 @@ private fun InkReaderApp(initialUri: String? = null) {
                             .indexOfLast { mark -> mark.charOffset <= resumeOffset }
                             .coerceAtLeast(0)
                         val previewChapters = previewChapterCount(knownMarks, startChapter)
+                        val memoryClassMb = (context.getSystemService(Context.ACTIVITY_SERVICE)
+                            as? ActivityManager)?.memoryClass ?: 512
+                        val largeBookThreshold = minOf(
+                            LARGE_EPUB_FULL_PARSE_BYTES,
+                            memoryClassMb * 1024L * 1024L / 4,
+                        )
+                        val formatMime = mimeTypeForName(source.displayName)
+                            ?: source.mimeType
+                        val localFile = if (formatMime == "application/epub+zip") {
+                            source.localFile()
+                        } else {
+                            null
+                        }
+                        val largeEpub = formatMime == "application/epub+zip" &&
+                            localFile != null &&
+                            source.size > largeBookThreshold
                         val preview = if (cached?.first != key) {
                             val openContext = OpenContext(
                                 source.displayName,
                                 source.mimeType,
                                 encoding,
                             )
-                            val formatMime = mimeTypeForName(source.displayName)
-                                ?: source.mimeType
                             val candidate = when {
                                 formatMime == "application/epub+zip" &&
-                                    source.localFile() != null -> runCatching {
+                                    localFile != null -> runCatching {
                                     EpubFormatProvider().openPreview(
                                         source,
                                         openContext,
-                                        maxChapters = previewChapters,
+                                        maxChapters = if (largeEpub) {
+                                            LARGE_PREVIEW_CHAPTERS
+                                        } else {
+                                            previewChapters
+                                        },
                                         startChapter = startChapter,
                                         knownMarks = knownMarks,
+                                        maxImageBytes = if (largeEpub) {
+                                            LARGE_PREVIEW_IMAGE_BYTES
+                                        } else {
+                                            32 * 1024 * 1024
+                                        },
                                     )
                                 }.getOrNull()
                                 formatMime == "text/plain" -> runCatching {
@@ -402,8 +440,23 @@ private fun InkReaderApp(initialUri: String? = null) {
                                     resumeOffset,
                                     partial = true,
                                     totalChars = totalChars,
+                                    lazyLarge = largeEpub,
                                 )
                             }
+                        }
+
+                        if (largeEpub) {
+                            // A 100 MB archive cannot be copied, unzipped and laid out
+                            // in one pass on a low-memory device. Keep the random-access
+                            // preview window; the full text is never materialised.
+                            largeBookMode = true
+                            largeBookFile = localFile
+                            largeBookName = source.displayName
+                            largeBookMime = source.mimeType
+                            if (preview == null) {
+                                error("EPUB 文件过大，预览失败")
+                            }
+                            return@withContext preview
                         }
 
                         val book = if (cached?.first == key) {
@@ -428,6 +481,7 @@ private fun InkReaderApp(initialUri: String? = null) {
                 }
             }
             result.onSuccess { book ->
+                if (largeBookMode) return@onSuccess
                 val current = screen
                 if (current is Screen.Home) return@onSuccess
                 // Preview is already interactive. Keep it while the full document
@@ -485,6 +539,39 @@ private fun InkReaderApp(initialUri: String? = null) {
         if (!initialUriHandled && !initialUri.isNullOrBlank()) {
             initialUriHandled = true
             openUri(Uri.parse(initialUri))
+        }
+    }
+
+    fun extendLargeBook() {
+        if (extendingLargeBook) return
+        val current = screen as? Screen.Reading ?: return
+        if (!current.lazyLarge) return
+        val file = largeBookFile ?: return
+        val name = largeBookName ?: return
+        val last = current.book.chapterMarks.lastOrNull() ?: return
+        val nextIndex = last.spineIndex + 1
+        val base = last.charOffset + last.length + 2
+        extendingLargeBook = true
+        scope.launch {
+            val window = withContext(Dispatchers.IO) {
+                runCatching {
+                    EpubFormatProvider().openPreview(
+                        FileBookSource(file, name, largeBookMime),
+                        OpenContext(name, largeBookMime, current.encoding),
+                        maxChapters = LARGE_PREVIEW_CHAPTERS,
+                        startChapter = nextIndex,
+                        knownMarks = emptyList(),
+                        baseOffsetOverride = base,
+                        maxImageBytes = LARGE_PREVIEW_IMAGE_BYTES,
+                    )
+                }.getOrNull()
+            }
+            val appended = window?.let { appendWindow(current.book, it) }
+            val latest = screen as? Screen.Reading
+            if (appended != null && latest != null && latest.uri == current.uri) {
+                screen = latest.copy(book = appended)
+            }
+            extendingLargeBook = false
         }
     }
 
@@ -659,6 +746,8 @@ private fun InkReaderApp(initialUri: String? = null) {
                     partial = current.partial,
                     totalChars = current.totalChars,
                     fullBookReady = pendingFullReading != null,
+                    lazyLarge = current.lazyLarge,
+                    onExtendLarge = { extendLargeBook() },
                     onRequestFull = {
                         pendingFullReading?.let { pending ->
                             pendingFullReading = null
@@ -917,6 +1006,8 @@ private fun ReaderScreen(
     partial: Boolean,
     totalChars: Int,
     fullBookReady: Boolean,
+    lazyLarge: Boolean,
+    onExtendLarge: () -> Unit,
     onRequestFull: () -> Unit,
     onSettingsChange: (ReaderSettings) -> Unit,
     onEncodingChange: (String?, Int) -> Unit,
@@ -962,6 +1053,7 @@ private fun ReaderScreen(
     }
     var pageInfo by remember { mutableStateOf(PageInfo(0, 1)) }
     var requestedFull by remember(bookKey) { mutableStateOf(false) }
+    var extendRequestedLength by remember(bookKey) { mutableStateOf(-1) }
     var controlsVisible by remember { mutableStateOf(true) }
     var tocVisible by remember { mutableStateOf(false) }
     var settingsVisible by remember { mutableStateOf(false) }
@@ -1042,7 +1134,14 @@ private fun ReaderScreen(
                         pageInfo = info
                         onProgress(info.charOffset)
                         val previewEnd = chapter.baseOffset + chapter.text.length
-                        if (partial && !requestedFull &&
+                        if (lazyLarge) {
+                            if (extendRequestedLength != chapter.text.length &&
+                                info.charOffset >= previewEnd - PREVIEW_SWITCH_MARGIN
+                            ) {
+                                extendRequestedLength = chapter.text.length
+                                onExtendLarge()
+                            }
+                        } else if (partial && !requestedFull &&
                             info.charOffset >= previewEnd - PREVIEW_SWITCH_MARGIN
                         ) {
                             requestedFull = true
@@ -1438,6 +1537,44 @@ private fun ReaderSettingsDialog(
                 Text("完成")
             }
         },
+    )
+}
+
+internal fun appendWindow(current: BookDocument, window: BookDocument): BookDocument? {
+    val cur = current.chapters.firstOrNull() ?: return null
+    val win = window.chapters.firstOrNull() ?: return null
+    if (win.text.isBlank()) return null
+    val expectedBase = cur.baseOffset + cur.text.length + 2
+    if (win.baseOffset != expectedBase) return null
+
+    val shift = cur.text.length + 2
+    val text = StringBuilder(cur.text.length + shift.coerceAtLeast(2) + win.text.length)
+        .append(cur.text)
+        .append("\n\n")
+        .append(win.text)
+        .toString()
+    val images = cur.images + win.images.map { it.copy(charOffset = it.charOffset + shift) }
+    val styles = cur.styles + win.styles.map {
+        it.copy(start = it.start + shift, endExclusive = it.endExclusive + shift)
+    }
+    val links = cur.links + win.links.map {
+        it.copy(start = it.start + shift, endExclusive = it.endExclusive + shift)
+    }
+    val toc = (current.toc + window.toc)
+        .distinctBy { entry -> entry.charOffset to entry.title }
+        .sortedBy { entry -> entry.charOffset }
+    return current.copy(
+        chapters = listOf(
+            cur.copy(
+                text = text,
+                images = images,
+                styles = styles,
+                links = links,
+            ),
+        ),
+        toc = toc,
+        resources = current.resources + window.resources,
+        chapterMarks = current.chapterMarks + window.chapterMarks,
     )
 }
 
