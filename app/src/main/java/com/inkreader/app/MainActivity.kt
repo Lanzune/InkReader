@@ -775,10 +775,14 @@ private fun ReaderScreen(
 ) {
     val chapter = book.chapters.first()
     val context = LocalContext.current
-    var readerText by remember(chapter) { mutableStateOf<CharSequence>(chapter.text) }
+    val needsRichText = chapter.images.isNotEmpty() || chapter.styles.isNotEmpty() || chapter.links.isNotEmpty()
+    var readerText by remember(chapter) {
+        mutableStateOf<CharSequence>(if (needsRichText) "" else chapter.text)
+    }
     var appliedText by remember(chapter) { mutableStateOf<CharSequence?>(null) }
+    var pageReady by remember(chapter) { mutableStateOf(!needsRichText) }
     LaunchedEffect(chapter, book.resources) {
-        if (chapter.images.isEmpty() && chapter.styles.isEmpty() && chapter.links.isEmpty()) return@LaunchedEffect
+        if (!needsRichText) return@LaunchedEffect
         val rich = withContext(Dispatchers.Default) {
             buildReaderText(context, chapter, book.resources)
         }
@@ -870,6 +874,7 @@ private fun ReaderScreen(
                         linkHistory = linkHistory + currentCharOffset()
                         goToCharOffset(target)
                     }
+                    onPageReady = { pageReady = true }
                     setContent(readerText, theme, initialCharOffset)
                     appliedText = readerText
                     readerView = this
@@ -880,12 +885,23 @@ private fun ReaderScreen(
                 surface.setTheme(theme)
                 surface.applyStyle(style)
                 if (appliedText !== readerText) {
+                    pageReady = false
                     surface.setContent(readerText, theme, surface.currentCharOffset())
                     appliedText = readerText
                 }
             },
             modifier = Modifier.fillMaxSize(),
         )
+        if (!pageReady) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color(theme.background)),
+                contentAlignment = Alignment.Center,
+            ) {
+                CircularProgressIndicator()
+            }
+        }
 
         if (controlsVisible) {
             Row(

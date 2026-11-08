@@ -71,6 +71,8 @@ class ReaderSurfaceView(context: Context) : View(context) {
     var onPageChanged: ((PageInfo) -> Unit)? = null
     var onCenterTap: (() -> Unit)? = null
     var onLinkTap: ((Int) -> Unit)? = null
+    var onPageReady: (() -> Unit)? = null
+    private var pageDrawn = false
 
     private val contentLeft get() = paddingLeft
     private val contentTop get() = paddingTop
@@ -147,6 +149,7 @@ class ReaderSurfaceView(context: Context) : View(context) {
         currentPage = 0
         renderedPageKey = -1
         ready = true
+        pageDrawn = false
         pendingCharOffset = initialCharOffset.coerceAtLeast(0)
         if (width > 0 && height > 0) {
             startLayout(pendingCharOffset)
@@ -275,10 +278,15 @@ class ReaderSurfaceView(context: Context) : View(context) {
 
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
+        if (textLayout == null && localPageLayout == null) return
         val start = if (textLayout == null) localPageStart else pageStart(currentPage)
         val end = if (textLayout == null) localPageEnd else pageEnd(currentPage)
         if (hasPendingPageImages(start, end)) return
         drawCurrentPage(canvas)
+        if (!pageDrawn) {
+            pageDrawn = true
+            post { onPageReady?.invoke() }
+        }
         val bitmap = pageBitmap ?: return
         val offset = if (animationDirection > 0) {
             -animationProgress * width
