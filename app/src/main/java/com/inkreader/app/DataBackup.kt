@@ -26,6 +26,7 @@ data class RestoredBackup(
     val saved: SavedReading?,
     val settings: ReaderSettings,
     val pluginEnabled: Boolean,
+    val pageNumberEnabled: Boolean,
     val installedPlugin: InstalledPlugin?,
     val bookRestored: Boolean,
 )
@@ -53,12 +54,14 @@ object DataBackup {
         saved: SavedReading?,
         settings: ReaderSettings,
         pluginEnabled: Boolean,
+        pageNumberEnabled: Boolean,
         installedPlugin: InstalledPlugin?,
     ) {
         val root = JSONObject()
         root.put("schema", SCHEMA)
         root.put("createdAt", System.currentTimeMillis())
         root.put("pluginEnabled", pluginEnabled)
+        root.put("pageNumberEnabled", pageNumberEnabled)
         root.put("settings", settingsJson(settings))
         if (saved != null) {
             root.put(
@@ -129,6 +132,7 @@ object DataBackup {
                 }
                 val settings = settingsFromJson(root.optJSONObject("settings"))
                 val pluginEnabled = root.optBoolean("pluginEnabled", true)
+                val pageNumberEnabled = root.optBoolean("pageNumberEnabled", false)
 
                 var saved: SavedReading? = null
                 var bookRestored = false
@@ -156,7 +160,14 @@ object DataBackup {
                 }
 
                 val installedPlugin = restorePlugin(context, zip)
-                return RestoredBackup(saved, settings, pluginEnabled, installedPlugin, bookRestored)
+                return RestoredBackup(
+                    saved,
+                    settings,
+                    pluginEnabled,
+                    pageNumberEnabled,
+                    installedPlugin,
+                    bookRestored,
+                )
             }
         } finally {
             temp.delete()

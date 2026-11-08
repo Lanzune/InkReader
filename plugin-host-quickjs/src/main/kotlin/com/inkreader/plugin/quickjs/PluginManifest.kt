@@ -27,6 +27,8 @@ object PluginManifestParser {
         "reader.state.read",
         "theme.contribute",
         "command.contribute",
+        "progress.contribute",
+        "reader.pagination",
         "settings.readwrite",
         "storage.plugin",
         "log.write",

@@ -38,7 +38,7 @@ my-plugin.inkp        # ZIP
 - `entry` 为包内 `.js`，无路径穿越
 - `api` 两项均为 1
 - 能力非空且在白名单内
-- 当前宿主要求同时声明 theme/command 能力
+- 至少声明一个可执行贡献：`theme.contribute`、`command.contribute`、`progress.contribute`
 
 ## 3. 当前 JS 契约
 
@@ -60,13 +60,43 @@ var inkPlugin = {
         render: function (progress) {
             return "示例插件进度：" + Math.round(progress * 100) + "%";
         }
+    },
+    progress: {
+        render: function (state) {
+            if (state.pageCount > 0) {
+                return (state.page + 1) + "/" + state.pageCount;
+            }
+            return state.percent.toFixed(1) + "%";
+        }
     }
 };
 ```
 
-宿主调用 `JSON.stringify(inkPlugin.theme)` 和 `inkPlugin.command.render(0.42)`。
+宿主调用：
 
-> `progress` 当前固定 0.42，仅用于验证链路；真实阅读状态 API 尚未接入。
+```javascript
+JSON.stringify(inkPlugin.theme);
+inkPlugin.command.render(0.42);
+inkPlugin.progress.render({
+  page: 9,
+  pageCount: 4145,
+  percent: 0.24,
+  charOffset: 2700,
+  totalChars: 1131577
+});
+```
+
+`progress.contribute` 是唯一会保留运行时、在翻页后反复调用的贡献。宿主传入：
+
+| 字段 | 含义 |
+|---|---|
+| `page` | 当前页，0 起 |
+| `pageCount` | 全书页数；分页未就绪时为 0 |
+| `percent` | 字符百分比，0–100 |
+| `charOffset` | 当前全书字符偏移 |
+| `totalChars` | 全书字符数；未知时为 0 |
+
+插件返回短文本，宿主显示在阅读器顶栏。超时或异常时回退到内核百分比。
 
 ## 4. 能力
 
@@ -74,7 +104,9 @@ var inkPlugin = {
 |---|---|---|
 | `theme.contribute` | ✅ | 主题 |
 | `command.contribute` | ✅ | 命令结果文本 |
-| `reader.state.read` | ⏳ | 预留 |
+| `progress.contribute` | ✅ | 阅读器顶栏进度标签，可反复调用 |
+| `reader.pagination` | ✅ | 申请全书页索引；未就绪时 `pageCount = 0` |
+| `reader.state.read` | ✅（进度子集） | 只传进度状态，不传书籍内容 |
 | `settings.readwrite` | ⏳ | 预留 |
 | `storage.plugin` | ⏳ | 预留 |
 | `log.write` | ⏳ | 预留 |
@@ -88,7 +120,7 @@ var inkPlugin = {
 | ZIP 条目 | 200 |
 | 激活 | 2 s |
 | 私有存储 | 5 MB（规划） |
-| 已安装插件 | 1 |
+| 已安装插件 | 主题/命令 1；进度插件 1（独立目录） |
 
 ## 6. 安全边界
 

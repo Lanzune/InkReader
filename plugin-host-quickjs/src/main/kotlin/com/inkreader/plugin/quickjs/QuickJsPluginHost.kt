@@ -6,53 +6,125 @@ package com.inkreader.plugin.quickjs
 import android.graphics.Color
 import com.dokar.quickjs.QuickJs
 import com.inkreader.kernel.api.ReaderTheme
-import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExecutorCoroutineDispatcher
+import kotlinx.coroutines.asCoroutineDispatcher
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.withTimeoutOrNull
 import org.json.JSONObject
+import java.util.concurrent.Executors
 
-data class PluginSnapshot(
-    val theme: ReaderTheme,
-    val commandResult: String,
-    val manifest: PluginManifest? = null,
-)
+/** Real reader state passed to a progress-label plugin. */
+data class ReaderProgressState(
+    val page: Int,
+    val pageCount: Int,
+    val percent: Double,
+    val charOffset: Int,
+    val totalChars: Int,
+) {
+    fun toJson(): String = JSONObject()
+        .put("page", page)
+        .put("pageCount", pageCount)
+        .put("percent", percent)
+        .put("charOffset", charOffset)
+        .put("totalChars", totalChars)
+        .toString()
+}
+
+class PluginSnapshot internal constructor(
+    val theme: ReaderTheme?,
+    val commandResult: String?,
+    val manifest: PluginManifest?,
+    val hasProgress: Boolean,
+    private val renderer: ProgressRenderer? = null,
+) : AutoCloseable {
+    suspend fun renderProgress(state: ReaderProgressState): String? =
+        renderer?.render(state)
+
+    override fun close() {
+        renderer?.close()
+    }
+}
 
 /**
  * QuickJS plugin host.
  *
  * M6 adds manifest validation, a 2 second activation timeout and an explicit
- * capability whitelist. Plugins still run in-process on a dedicated dispatcher;
- * process isolation is deferred to v1.1.
+ * capability whitelist. M9 adds a live progress-label contribution: the plugin
+ * runtime stays alive so the reader can ask it for a label on every page.
  */
 class QuickJsPluginHost {
 
     suspend fun load(
         script: String,
         manifest: PluginManifest? = null,
-    ): PluginSnapshot = withContext(Dispatchers.Default) {
+    ): PluginSnapshot {
         if (script.toByteArray(Charsets.UTF_8).size > PluginManifestParser.MAX_SCRIPT_BYTES) {
             throw IllegalStateException("插件脚本超过 1 MB")
         }
-        if (manifest != null) {
-            if ("theme.contribute" !in manifest.capabilities) {
-                throw IllegalStateException("插件未声明 theme.contribute")
-            }
-            if ("command.contribute" !in manifest.capabilities) {
-                throw IllegalStateException("插件未声明 command.contribute")
-            }
+        val hasTheme = manifest?.capabilities?.contains("theme.contribute") ?: true
+        val hasCommand = manifest?.capabilities?.contains("command.contribute") ?: true
+        val hasProgress = manifest?.capabilities?.contains("progress.contribute") ?: false
+        if (!hasTheme && !hasCommand && !hasProgress) {
+            throw IllegalStateException("插件没有可执行的贡献能力")
         }
-        withTimeout(2_000) {
-            val quickJs = QuickJs.create(Dispatchers.Default)
+
+        val dispatcher = Executors.newSingleThreadExecutor { runnable ->
+            Thread(runnable, "inkreader-plugin").apply { isDaemon = true }
+        }.asCoroutineDispatcher()
+
+        return withContext(dispatcher) {
+            val quickJs = QuickJs.create(dispatcher)
             try {
-                val themeJson = quickJs.evaluate<String>(
-                    "$script\nJSON.stringify(inkPlugin.theme);",
-                )
-                val commandResult = quickJs.evaluate<String>(
-                    "$script\ninkPlugin.command.render(0.42);",
-                )
-                PluginSnapshot(parseTheme(themeJson), commandResult, manifest)
-            } finally {
-                quickJs.close()
+                val snapshot = withTimeout(2_000) {
+                    val theme = if (hasTheme) {
+                        val themeJson = quickJs.evaluate<String>(
+                            "$script\nJSON.stringify(inkPlugin.theme);",
+                        )
+                        parseTheme(themeJson)
+                    } else {
+                        null
+                    }
+                    val commandResult = if (hasCommand) {
+                        quickJs.evaluate<String>(
+                            "$script\ninkPlugin.command.render(0.42);",
+                        )
+                    } else {
+                        null
+                    }
+                    if (hasProgress) {
+                        val hasRenderer = quickJs.evaluate<String>(
+                            "$script\n(typeof inkPlugin.progress === 'object' " +
+                                "&& typeof inkPlugin.progress.render === 'function') " +
+                                "? 'true' : 'false';",
+                        ) == "true"
+                        if (!hasRenderer) {
+                            throw IllegalStateException("插件缺少 inkPlugin.progress.render")
+                        }
+                    }
+                    PluginSnapshot(
+                        theme = theme,
+                        commandResult = commandResult,
+                        manifest = manifest,
+                        hasProgress = hasProgress,
+                        renderer = if (hasProgress) {
+                            ProgressRenderer(quickJs, dispatcher)
+                        } else {
+                            null
+                        },
+                    )
+                }
+                if (!hasProgress) {
+                    quickJs.close()
+                    dispatcher.close()
+                }
+                snapshot
+            } catch (failure: Throwable) {
+                runCatching { quickJs.close() }
+                dispatcher.close()
+                throw failure
             }
         }
     }
@@ -73,5 +145,27 @@ class QuickJsPluginHost {
         Color.parseColor(value)
     } catch (_: IllegalArgumentException) {
         Color.BLACK
+    }
+}
+
+internal class ProgressRenderer(
+    private val quickJs: QuickJs,
+    private val dispatcher: ExecutorCoroutineDispatcher,
+) {
+    private val mutex = Mutex()
+
+    suspend fun render(state: ReaderProgressState): String? = withContext(dispatcher) {
+        mutex.withLock {
+            withTimeoutOrNull(500) {
+                quickJs.evaluate<String>(
+                    "inkPlugin.progress.render(${state.toJson()});",
+                )
+            }?.takeIf { it.isNotBlank() }
+        }
+    }
+
+    fun close() {
+        runCatching { quickJs.close() }
+        dispatcher.close()
     }
 }

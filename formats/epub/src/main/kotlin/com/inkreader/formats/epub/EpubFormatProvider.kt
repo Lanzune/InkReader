@@ -145,6 +145,47 @@ class EpubFormatProvider : FormatProvider {
         return zip.getInputStream(entry).use { it.readBytes() }
     }
 
+    /**
+     * Streams every spine XHTML just long enough to count characters. Images,
+     * styles and the full text are never retained; used by the percentage
+     * progress path for books too large for a full document.
+     */
+    fun estimateTextLength(source: BookSource): Int? {
+        val file = source.localFile() ?: return null
+        if (!file.isFile) return null
+        ZipFile(file).use { zip ->
+            val containerBytes = readZipEntry(zip, "META-INF/container.xml") ?: return null
+            val opfPath = EpubXml.run {
+                val document = parse(containerBytes)
+                val rootfile = first(document.documentElement, "rootfile")
+                attribute(rootfile ?: return@run null, "full-path")
+                    ?.let { EpubArchive.resolve("", it) }
+            } ?: return null
+            val opfBytes = readZipEntry(zip, opfPath) ?: return null
+            val packageInfo = readPackage(
+                EpubArchive.fromEntries(
+                    linkedMapOf(
+                        "META-INF/container.xml" to containerBytes,
+                        opfPath to opfBytes,
+                    ),
+                ),
+            )
+            var total = 0
+            var hasContent = false
+            for (item in packageInfo.spine) {
+                val bytes = readZipEntry(zip, item.path) ?: continue
+                val html = EpubArchive.fromEntries(mapOf(item.path to bytes)).text(item.path)
+                    ?: continue
+                val text = XhtmlText.extract(html)
+                if (text.isBlank()) continue
+                if (hasContent) total += 2
+                total += text.length
+                hasContent = true
+            }
+            return total.takeIf { hasContent }
+        }
+    }
+
     private fun readPackage(archive: EpubArchive): PackageInfo {
         val containerBytes = archive.entries["META-INF/container.xml"]
         val opfPath = if (containerBytes != null) {

@@ -29,6 +29,25 @@ class PluginManifestParserTest {
     }
 
     @Test
+    fun acceptsProgressContribution() {
+        val manifest = PluginManifestParser.parse(
+            """
+            {
+              "schemaVersion": 1,
+              "id": "dev.inkreader.page-number",
+              "name": "Page Number",
+              "version": "1.0.0",
+              "entry": "page-number.js",
+              "api": {"minHostApi": 1, "targetHostApi": 1},
+              "capabilities": ["progress.contribute", "reader.state.read", "reader.pagination"]
+            }
+            """.trimIndent(),
+        )
+        assertTrue("progress.contribute" in manifest.capabilities)
+        assertTrue("reader.pagination" in manifest.capabilities)
+    }
+
+    @Test
     fun rejectsUnknownCapability() {
         val failure = runCatching {
             PluginManifestParser.parse(

@@ -14,7 +14,7 @@
 
 ## 当前状态
 
-**阶段：M8d 大书安全模式与格式矩阵完成，0.8.5。**
+**阶段：M9.1/M9.2 完成，0.9.0：百分比内核 + 页码插件。**
 
 - M0～M2：TXT 阅读器完成，标签 `m2-txt-reader`
 - M3：EPUB 完成，标签 `m3-epub`
@@ -22,24 +22,19 @@
 - M5：翻页动画、命令面板，标签 `m5-experience`
 - M6：manifest、`.inkp` 安装、启停/卸载，标签 `m6-plugins`
 - M7：R8 release、正式签名、AGPL-3.0-only，标签 `v0.7.2`
-- M8a：首屏局部排版、并行 EPUB 解析、后台富文本/分页、内存缓存，0.8.0
-- M8b：EPUB 预览加载（ZipFile 随机读 + 前 8 章 + 后台全量），0.8.2
-- M8b.1：content URI 本地缓存、目标章索引、章节窗口、图片位图复用，0.8.3
-- M8c：持久页索引、TXT/HTML/MD 前缀首屏、PDF 基准、按需切换完整书，0.8.4
-- M8d：大 EPUB 安全模式、4 章窗口追加、格式矩阵，0.8.5
-- 后续：低端机实机验收、大书完整页索引、发布收尾
+- M8：打开速度、大书安全模式、持久页索引，0.8.0–0.8.5
+- M9.1：字符百分比内核，关闭页插件时不做全书分页，0.9.0
+- M9.2：`progress.contribute` + 页码插件，0.9.0
+- 后续：多插件安装管理、发布检查、低端机验收
 
 性能测试：`scripts/bench-open.cmd -Runs 5`
 性能记录：[perf-phase1](docs/quality/2026-11-08-perf-phase1.md)
-图片预加载：[image-preload](docs/quality/2026-11-08-image-preload.md)
 EPUB 预览：[m8b-preview](docs/quality/2026-11-08-m8b-preview.md)
-目标位置预览：[m8b1-open](docs/quality/2026-11-08-m8b1-open.md)
-即时全书页码：[m8c-page-index](docs/quality/2026-11-08-m8c-page-index.md)
-文本首屏与 PDF：[m8c-text-pdf](docs/quality/2026-11-08-m8c-text-pdf.md)
-按需完整书：[m8c-on-demand](docs/quality/2026-11-08-m8c-on-demand.md)
 大书与格式矩阵：[m8d-large-and-matrix](docs/quality/2026-11-08-m8d-large-and-matrix.md)
+百分比与页码插件：[m9-percent-plugin](docs/quality/2026-11-08-m9-percent-plugin.md)
+插件开发：[plugin-dev](docs/plugin-dev.md) · 示例：[page-number](examples/page-number/)
 
-下一步：低端机验收与大书完整页索引。
+下一步：M9.3 多插件安装管理。
 
 ## 目录结构
 

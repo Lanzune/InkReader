@@ -98,6 +98,7 @@ import com.inkreader.plugin.quickjs.PluginInstaller
 import com.inkreader.plugin.quickjs.PluginManifestParser
 import com.inkreader.plugin.quickjs.PluginSnapshot
 import com.inkreader.plugin.quickjs.QuickJsPluginHost
+import com.inkreader.plugin.quickjs.ReaderProgressState
 import com.inkreader.reader.engine.ReaderLinkSpan
 import com.inkreader.reader.engine.ReaderSurfaceView
 import kotlinx.coroutines.Dispatchers
@@ -164,16 +165,27 @@ private fun InkReaderApp(initialUri: String? = null) {
     var error: String? by remember { mutableStateOf(null) }
     var pluginSnapshot: PluginSnapshot? by remember { mutableStateOf(null) }
     var pluginError: String? by remember { mutableStateOf(null) }
+    var progressPlugin: PluginSnapshot? by remember { mutableStateOf(null) }
+    var progressPluginError: String? by remember { mutableStateOf(null) }
+    var pageNumberEnabled by remember {
+        mutableStateOf(pluginPrefs.getBoolean("page_number", false))
+    }
     var pluginEnabled by remember { mutableStateOf(pluginPrefs.getBoolean("enabled", true)) }
     var backupMessage by remember { mutableStateOf<String?>(null) }
     val bookCache = remember { java.util.concurrent.atomic.AtomicReference<Pair<String, BookDocument>?>(null) }
     val bookIndex = remember(context) { BookIndexStore(context) }
     val pluginDir = remember(context) { File(context.filesDir, "plugins") }
+    val progressPluginDir = remember(context) { File(context.filesDir, "plugins-progress") }
     var installedPlugin by remember { mutableStateOf(PluginInstaller.findInstalled(pluginDir)) }
+    var installedProgressPlugin by remember {
+        mutableStateOf(PluginInstaller.findInstalled(progressPluginDir))
+    }
 
     LaunchedEffect(pluginEnabled, installedPlugin) {
+        val previous = pluginSnapshot
         pluginSnapshot = null
         pluginError = null
+        previous?.close()
         if (!pluginEnabled) return@LaunchedEffect
         val result = runCatching {
             withContext(Dispatchers.IO) {
@@ -196,6 +208,75 @@ private fun InkReaderApp(initialUri: String? = null) {
         }
         result.onSuccess { pluginSnapshot = it }
             .onFailure { pluginError = it.message ?: "示例插件加载失败" }
+    }
+
+    LaunchedEffect(pageNumberEnabled, installedProgressPlugin) {
+        val previous = progressPlugin
+        progressPlugin = null
+        progressPluginError = null
+        previous?.close()
+        if (!pageNumberEnabled) return@LaunchedEffect
+        val result = runCatching {
+            withContext(Dispatchers.IO) {
+                val installed = installedProgressPlugin
+                if (installed != null) {
+                    QuickJsPluginHost().load(installed.script, installed.manifest)
+                } else {
+                    val manifestJson = context.assets
+                        .open("plugins/page-number.manifest.json")
+                        .bufferedReader()
+                        .use { it.readText() }
+                    val manifest = PluginManifestParser.parse(manifestJson)
+                    val script = context.assets
+                        .open("plugins/page-number.js")
+                        .bufferedReader()
+                        .use { it.readText() }
+                    QuickJsPluginHost().load(script, manifest)
+                }
+            }
+        }
+        result.onSuccess { progressPlugin = it }
+            .onFailure { progressPluginError = it.message ?: "页码插件加载失败" }
+    }
+
+    DisposableEffect(pluginSnapshot) {
+        val snapshot = pluginSnapshot
+        onDispose { snapshot?.close() }
+    }
+    DisposableEffect(progressPlugin) {
+        val snapshot = progressPlugin
+        onDispose { snapshot?.close() }
+    }
+
+    fun setPageNumberEnabled(enabled: Boolean) {
+        pageNumberEnabled = enabled
+        pluginPrefs.edit().putBoolean("page_number", enabled).apply()
+    }
+
+    fun installProgressPlugin() {
+        scope.launch {
+            val result = runCatching {
+                withContext(Dispatchers.IO) {
+                    val bytes = context.assets
+                        .open("plugins/page-number.inkp")
+                        .use { it.readBytes() }
+                    PluginInstaller.installBytes(bytes, progressPluginDir)
+                }
+            }
+            result.onSuccess { plugin ->
+                installedProgressPlugin = plugin
+                setPageNumberEnabled(true)
+            }.onFailure { failure ->
+                progressPluginError = "页码插件安装失败：${failure.message ?: failure.javaClass.simpleName}"
+            }
+        }
+    }
+
+    fun uninstallProgressPlugin() {
+        val plugin = installedProgressPlugin ?: return
+        PluginInstaller.uninstall(progressPluginDir, plugin.manifest.id)
+        installedProgressPlugin = null
+        setPageNumberEnabled(false)
     }
 
     fun setPluginEnabled(enabled: Boolean) {
@@ -243,6 +324,7 @@ private fun InkReaderApp(initialUri: String? = null) {
                             saved = saved,
                             settings = settings,
                             pluginEnabled = pluginEnabled,
+                            pageNumberEnabled = pageNumberEnabled,
                             installedPlugin = installedPlugin,
                         )
                     }
@@ -283,6 +365,10 @@ private fun InkReaderApp(initialUri: String? = null) {
                     }
                     pluginEnabled = restored.pluginEnabled
                     pluginPrefs.edit().putBoolean("enabled", restored.pluginEnabled).apply()
+                    pageNumberEnabled = restored.pageNumberEnabled
+                    pluginPrefs.edit()
+                        .putBoolean("page_number", restored.pageNumberEnabled)
+                        .apply()
                     installedPlugin = restored.installedPlugin
                     backupMessage = if (restored.bookRestored) {
                         "备份已恢复，阅读进度和设置已还原"
@@ -443,6 +529,26 @@ private fun InkReaderApp(initialUri: String? = null) {
                                     lazyLarge = largeEpub,
                                 )
                             }
+                            if (localFile != null && totalChars <= 0) {
+                                val previewUri = uri
+                                val localName = source.displayName
+                                val localMime = source.mimeType
+                                scope.launch {
+                                    val total = withContext(Dispatchers.IO) {
+                                        runCatching {
+                                            EpubFormatProvider().estimateTextLength(
+                                                FileBookSource(localFile, localName, localMime),
+                                            )
+                                        }.getOrNull()
+                                    }
+                                    if (total != null && total > 0) {
+                                        val latest = screen as? Screen.Reading
+                                        if (latest != null && latest.uri == previewUri) {
+                                            screen = latest.copy(totalChars = total)
+                                        }
+                                    }
+                                }
+                            }
                         }
 
                         if (largeEpub) {
@@ -501,19 +607,33 @@ private fun InkReaderApp(initialUri: String? = null) {
                 )
                 readingState.save(record.uri, record.title, record.charOffset, record.encoding)
                 saved = record
-                val fullScreen = Screen.Reading(book, uri, encoding, resumeOffset)
+                val fullScreen = Screen.Reading(
+                    book,
+                    uri,
+                    encoding,
+                    resumeOffset,
+                    totalChars = book.chapters.firstOrNull()
+                        ?.let { chapter -> chapter.baseOffset + chapter.text.length }
+                        ?: 0,
+                )
                 val preview = current as? Screen.Reading
                 val previewEnd = preview?.let { reading ->
                     val chapter = reading.book.chapters.firstOrNull()
                     (chapter?.baseOffset ?: 0) + (chapter?.text?.length ?: 0)
                 } ?: 0
+                val pageNumbersWanted = pageNumberEnabled &&
+                    progressPlugin?.manifest?.capabilities?.contains("reader.pagination") == true
                 if (preview != null && preview.partial && preview.uri == uri &&
+                    !pageNumbersWanted &&
                     resumeOffset < previewEnd - PREVIEW_SWITCH_MARGIN
                 ) {
                     // Keep the responsive window while the user is well inside it.
                     // The full document is applied when the TOC is opened or the
                     // reader approaches the end of the window.
                     pendingFullReading = fullScreen
+                    if (preview.totalChars <= 0) {
+                        screen = preview.copy(totalChars = fullScreen.totalChars)
+                    }
                 } else {
                     pendingFullReading = null
                     screen = fullScreen
@@ -600,6 +720,9 @@ private fun InkReaderApp(initialUri: String? = null) {
                     encoding = null,
                     initialOffset = 0,
                     persistProgress = false,
+                    totalChars = book.chapters.firstOrNull()
+                        ?.let { chapter -> chapter.baseOffset + chapter.text.length }
+                        ?: 0,
                 )
             }.onFailure { failure ->
                 val cause = failure.cause?.let { "${it.javaClass.simpleName}: ${it.message}" }
@@ -669,6 +792,9 @@ private fun InkReaderApp(initialUri: String? = null) {
                     encoding = null,
                     initialOffset = 0,
                     persistProgress = false,
+                    totalChars = book.chapters.firstOrNull()
+                        ?.let { chapter -> chapter.baseOffset + chapter.text.length }
+                        ?: 0,
                 )
             }.onFailure { failure ->
                 error = "示例 Markdown 打开失败：${failure.message ?: failure.javaClass.simpleName}"
@@ -684,6 +810,10 @@ private fun InkReaderApp(initialUri: String? = null) {
             pluginSnapshot = pluginSnapshot,
             pluginError = pluginError,
             pluginEnabled = pluginEnabled,
+            pageNumberEnabled = pageNumberEnabled,
+            progressPlugin = progressPlugin,
+            progressPluginError = progressPluginError,
+            installedProgressPlugin = installedProgressPlugin,
             installedPlugin = installedPlugin,
             backupMessage = backupMessage,
             showSample = debuggable,
@@ -695,6 +825,9 @@ private fun InkReaderApp(initialUri: String? = null) {
             onUninstallPlugin = { uninstallPlugin() },
             onInstallSampleInkp = { installSampleInkp() },
             onTogglePlugin = { setPluginEnabled(!pluginEnabled) },
+            onTogglePageNumber = { setPageNumberEnabled(!pageNumberEnabled) },
+            onInstallProgressPlugin = { installProgressPlugin() },
+            onUninstallProgressPlugin = { uninstallProgressPlugin() },
             onExportBackup = { exportBackup.launch("inkreader-backup.zip") },
             onImportBackup = { importBackup.launch(arrayOf("application/zip", "*/*")) },
             onContinue = {
@@ -745,8 +878,10 @@ private fun InkReaderApp(initialUri: String? = null) {
                     initialCharOffset = current.initialOffset,
                     partial = current.partial,
                     totalChars = current.totalChars,
-                    fullBookReady = pendingFullReading != null,
+                    pageNumberPluginEnabled = pageNumberEnabled && progressPlugin != null,
+                    progressPlugin = progressPlugin,
                     lazyLarge = current.lazyLarge,
+                    fullBookReady = pendingFullReading != null,
                     onExtendLarge = { extendLargeBook() },
                     onRequestFull = {
                         pendingFullReading?.let { pending ->
@@ -804,6 +939,10 @@ private fun HomeScreen(
     pluginSnapshot: PluginSnapshot?,
     pluginError: String?,
     pluginEnabled: Boolean,
+    pageNumberEnabled: Boolean,
+    progressPlugin: PluginSnapshot?,
+    progressPluginError: String?,
+    installedProgressPlugin: InstalledPlugin?,
     installedPlugin: InstalledPlugin?,
     backupMessage: String?,
     showSample: Boolean,
@@ -815,6 +954,9 @@ private fun HomeScreen(
     onUninstallPlugin: () -> Unit,
     onInstallSampleInkp: () -> Unit,
     onTogglePlugin: () -> Unit,
+    onTogglePageNumber: () -> Unit,
+    onInstallProgressPlugin: () -> Unit,
+    onUninstallProgressPlugin: () -> Unit,
     onExportBackup: () -> Unit,
     onImportBackup: () -> Unit,
     onContinue: () -> Unit,
@@ -865,6 +1007,49 @@ private fun HomeScreen(
                     Text("卸载已安装插件：${installedPlugin.manifest.name}")
                 }
             }
+            Text(
+                text = if (pageNumberEnabled && progressPlugin != null) {
+                    "阅读进度：页码插件已启用（百分比仍实时显示）"
+                } else if (pageNumberEnabled) {
+                    "阅读进度：页码插件加载中"
+                } else {
+                    "阅读进度：百分比（页码插件未启用）"
+                },
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            TextButton(onClick = onTogglePageNumber) {
+                Text(
+                    if (pageNumberEnabled) {
+                        "关闭页码插件，仅显示百分比"
+                    } else {
+                        "启用页码插件（全书页码）"
+                    },
+                )
+            }
+            Text(
+                text = installedProgressPlugin?.let {
+                    "页码插件来源：已安装 ${it.manifest.name} v${it.manifest.version}"
+                } ?: "页码插件来源：内置第一方插件",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            if (installedProgressPlugin != null) {
+                TextButton(onClick = onUninstallProgressPlugin) {
+                    Text("卸载页码插件，恢复内置")
+                }
+            } else {
+                TextButton(onClick = onInstallProgressPlugin) {
+                    Text("安装页码插件（.inkp）")
+                }
+            }
+            if (progressPluginError != null) {
+                Text(
+                    text = "页码插件错误：$progressPluginError",
+                    color = MaterialTheme.colorScheme.error,
+                    style = MaterialTheme.typography.bodySmall,
+                )
+            }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedButton(onClick = onExportBackup) {
                     Text("导出阅读数据")
@@ -901,7 +1086,7 @@ private fun HomeScreen(
                 when {
                     pluginSnapshot != null -> {
                         Text(
-                            text = "插件主题：${pluginSnapshot.theme.name}",
+                            text = "插件主题：${pluginSnapshot.theme?.name ?: "无（仅进度/命令）"}",
                             style = MaterialTheme.typography.bodyMedium,
                         )
                         Text(
@@ -911,11 +1096,13 @@ private fun HomeScreen(
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
-                        Text(
-                            text = pluginSnapshot.commandResult,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
+                        pluginSnapshot.commandResult?.let { command ->
+                            Text(
+                                text = command,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
                         TextButton(onClick = onTogglePlugin) { Text("禁用示例插件") }
                     }
 
@@ -1005,8 +1192,10 @@ private fun ReaderScreen(
     initialCharOffset: Int,
     partial: Boolean,
     totalChars: Int,
-    fullBookReady: Boolean,
+    pageNumberPluginEnabled: Boolean,
+    progressPlugin: PluginSnapshot?,
     lazyLarge: Boolean,
+    fullBookReady: Boolean,
     onExtendLarge: () -> Unit,
     onRequestFull: () -> Unit,
     onSettingsChange: (ReaderSettings) -> Unit,
@@ -1025,7 +1214,11 @@ private fun ReaderScreen(
     val saveScope = rememberCoroutineScope()
     val latestPartial = rememberUpdatedState(partial)
     var loadedPageSignature by remember(bookKey) { mutableStateOf<String?>(null) }
-    var pageIndexAvailable by remember(bookKey) { mutableStateOf(false) }
+    val pageNumberPluginActive = pageNumberPluginEnabled &&
+        progressPlugin?.hasProgress == true &&
+        progressPlugin.manifest?.capabilities?.contains("reader.pagination") == true &&
+        !lazyLarge
+    val fullPagination = pageNumberPluginActive && !partial
     LaunchedEffect(bookKey, chapter, book.resources) {
         if (!needsRichText) {
             readerText = chapter.text
@@ -1038,6 +1231,12 @@ private fun ReaderScreen(
     }
 
     fun syncPageIndex(surface: ReaderSurfaceView) {
+        if (!pageNumberPluginActive) {
+            surface.clearPageIndex()
+            loadedPageSignature = null
+            return
+        }
+        if (readerText.isNullOrEmpty() || appliedText !== readerText) return
         if (surface.width <= 0 || surface.height <= 0) return
         val signature = surface.layoutSignature()
         if (signature == loadedPageSignature) return
@@ -1045,13 +1244,53 @@ private fun ReaderScreen(
         val hint = pageIndexStore.load(bookKey, signature)
         if (hint != null) {
             surface.applyPageIndex(hint)
-            pageIndexAvailable = true
         } else {
             surface.clearPageIndex()
-            pageIndexAvailable = false
         }
     }
     var pageInfo by remember { mutableStateOf(PageInfo(0, 1)) }
+    var pluginProgressText by remember(bookKey) { mutableStateOf<String?>(null) }
+    LaunchedEffect(
+        pageInfo.page,
+        pageInfo.pageCount,
+        pageInfo.charOffset,
+        totalChars,
+        progressPlugin,
+        fullPagination,
+    ) {
+        if (!fullPagination || progressPlugin == null) {
+            pluginProgressText = null
+            return@LaunchedEffect
+        }
+        val percent = if (totalChars > 0) {
+            pageInfo.charOffset.toDouble() * 100.0 / totalChars
+        } else {
+            0.0
+        }
+        val renderedResult = runCatching {
+            progressPlugin.renderProgress(
+                ReaderProgressState(
+                    page = pageInfo.page,
+                    pageCount = pageInfo.pageCount,
+                    percent = percent,
+                    charOffset = pageInfo.charOffset,
+                    totalChars = totalChars,
+                ),
+            )
+        }
+        pluginProgressText = renderedResult.getOrNull()
+    }
+    val percentLabel = if (totalChars > 0) {
+        val tenths = (pageInfo.charOffset * 1000L / totalChars).coerceIn(0L, 1000L)
+        "${tenths / 10}.${tenths % 10}%"
+    } else {
+        "…"
+    }
+    val progressLabel = if (pageNumberPluginEnabled && !pluginProgressText.isNullOrBlank()) {
+        pluginProgressText!!
+    } else {
+        percentLabel
+    }
     var requestedFull by remember(bookKey) { mutableStateOf(false) }
     var extendRequestedLength by remember(bookKey) { mutableStateOf(-1) }
     var controlsVisible by remember { mutableStateOf(true) }
@@ -1156,7 +1395,7 @@ private fun ReaderScreen(
                     onPageReady = {
                         pageReady = true
                     }
-                    pageIndexSaveEnabled = !partial
+                    pageIndexSaveEnabled = fullPagination && !partial
                     onPageIndexReady = { starts ->
                         if (!latestPartial.value) {
                             val signature = layoutSignature()
@@ -1165,6 +1404,7 @@ private fun ReaderScreen(
                             }
                         }
                     }
+                    setFullPaginationEnabled(fullPagination)
                     setContent(
                         readerText ?: "",
                         theme,
@@ -1181,7 +1421,8 @@ private fun ReaderScreen(
                 surface.pageTurnAnimationEnabled = settings.pageTurnAnimation
                 surface.setTheme(theme)
                 surface.applyStyle(style)
-                surface.pageIndexSaveEnabled = !partial
+                surface.setFullPaginationEnabled(fullPagination)
+                surface.pageIndexSaveEnabled = fullPagination && !partial
                 syncPageIndex(surface)
                 if (appliedText !== readerText) {
                     val restoreOffset = pendingOffset ?: surface.currentCharOffset()
@@ -1194,6 +1435,7 @@ private fun ReaderScreen(
                     )
                     appliedText = readerText
                     pendingOffset = null
+                    syncPageIndex(surface)
                 }
             },
             modifier = Modifier.fillMaxSize(),
@@ -1232,18 +1474,7 @@ private fun ReaderScreen(
                     style = MaterialTheme.typography.titleSmall,
                 )
                 Text(
-                    text = when {
-                        pageIndexAvailable && pageInfo.pageCount > 0 ->
-                            "${pageInfo.page + 1}/${pageInfo.pageCount}"
-                        partial && totalChars > 0 -> {
-                            val tenths = (pageInfo.charOffset * 1000L / totalChars)
-                                .coerceIn(0L, 1000L)
-                            "${tenths / 10}.${tenths % 10}%"
-                        }
-                        partial -> "${pageInfo.page + 1}/…"
-                        pageInfo.pageCount > 0 -> "${pageInfo.page + 1}/${pageInfo.pageCount}"
-                        else -> "${pageInfo.page + 1}/…"
-                    },
+                    text = progressLabel,
                     color = Color(theme.foreground),
                     style = MaterialTheme.typography.labelMedium,
                 )
@@ -1308,6 +1539,7 @@ private fun ReaderScreen(
         ReaderCommandPalette(
             page = pageInfo.page + 1,
             pageCount = pageInfo.pageCount,
+            progressLabel = progressLabel,
             hasToc = book.toc.isNotEmpty(),
             canPrevious = pageInfo.page > 0,
             canNext = pageInfo.pageCount == 0 || pageInfo.page + 1 < pageInfo.pageCount,
@@ -1345,6 +1577,7 @@ private fun ReaderScreen(
 private fun ReaderCommandPalette(
     page: Int,
     pageCount: Int,
+    progressLabel: String,
     hasToc: Boolean,
     canPrevious: Boolean,
     canNext: Boolean,
@@ -1368,7 +1601,7 @@ private fun ReaderCommandPalette(
                 verticalArrangement = Arrangement.spacedBy(2.dp),
             ) {
                 Text(
-                    text = if (pageCount > 0) "第 $page / $pageCount 页" else "第 $page 页 · 分页计算中",
+                    text = "阅读进度：$progressLabel",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )

@@ -66,6 +66,7 @@ class ReaderSurfaceView(context: Context) : View(context) {
     private var localPageNumber = 0
     private var pageHint: IntArray? = null
     private var fullBookContent = false
+    private var fullPaginationEnabled = true
     private val layoutScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private val LOCAL_WINDOW_CHARS = 16_000
 
@@ -181,6 +182,37 @@ class ReaderSurfaceView(context: Context) : View(context) {
     }
 
     fun hasPageIndex(): Boolean = pageHint != null
+
+    /**
+     * Full pagination is a plugin feature. When disabled the reader only lays
+     * out the current page and progress is character based, so opening never
+     * waits for a whole-book StaticLayout.
+     */
+    fun setFullPaginationEnabled(enabled: Boolean) {
+        if (fullPaginationEnabled == enabled) return
+        fullPaginationEnabled = enabled
+        if (!ready) {
+            if (!enabled) pageHint = null
+            return
+        }
+        val offset = currentCharOffset() - contentBaseOffset
+        if (!enabled) {
+            pageHint = null
+            layoutJob?.cancel()
+            layoutGeneration += 1
+            textLayout = null
+            pageStarts = IntArray(0)
+            renderedPageLayout = null
+            renderedPageKey = -1
+            localPageNumber = 0
+            buildLocalPage(offset)
+            preloadPageImages(localPageStart, localPageEnd)
+            notifyPage()
+            invalidate()
+        } else {
+            startLayout(offset)
+        }
+    }
 
     fun setContent(
         text: CharSequence,
@@ -525,6 +557,8 @@ class ReaderSurfaceView(context: Context) : View(context) {
         preloadPageImages(localPageEnd, nextEnd)
         notifyPage()
         invalidate()
+
+        if (!fullPaginationEnabled) return
 
         val paint = TextPaint(textPaint)
         val text = content

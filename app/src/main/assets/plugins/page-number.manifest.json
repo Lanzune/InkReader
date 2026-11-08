@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "id": "dev.inkreader.page-number",
+  "name": "Page Number",
+  "version": "1.0.0",
+  "entry": "page-number.js",
+  "api": {
+    "minHostApi": 1,
+    "targetHostApi": 1
+  },
+  "capabilities": [
+    "progress.contribute",
+    "reader.state.read",
+    "reader.pagination"
+  ]
+}

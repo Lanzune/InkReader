@@ -116,6 +116,29 @@ class EpubFormatProviderTest {
     }
 
     @Test
+    fun estimateTextLengthMatchesFullDocumentLength() {
+        val bytes = EpubFixture.create()
+        val file = java.io.File.createTempFile("inkreader-estimate", ".epub").apply {
+            writeBytes(bytes)
+            deleteOnExit()
+        }
+        try {
+            val source = FakeEpubSource(
+                displayName = "sample.epub",
+                mimeType = "application/epub+zip",
+                bytes = bytes,
+                local = file,
+            )
+            val context = OpenContext(source.displayName, source.mimeType)
+            val full = provider.open(source, context)
+            val estimate = provider.estimateTextLength(source)
+            assertEquals(full.chapters.single().text.length, estimate)
+        } finally {
+            file.delete()
+        }
+    }
+
+    @Test
     fun rejectsNonZip() {
         val source = FakeEpubSource(
             displayName = "bad.epub",
