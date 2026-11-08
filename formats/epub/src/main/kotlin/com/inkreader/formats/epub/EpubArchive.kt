@@ -29,6 +29,9 @@ internal class EpubArchive private constructor(
         private const val MAX_ENTRY_BYTES = 30 * 1024 * 1024
         private const val MAX_TOTAL_BYTES = 120 * 1024 * 1024
 
+        internal fun fromEntries(entries: Map<String, ByteArray>): EpubArchive =
+            EpubArchive(entries)
+
         fun open(bytes: ByteArray): EpubArchive {
             if (bytes.size < 4 || bytes[0] != 'P'.code.toByte() || bytes[1] != 'K'.code.toByte()) {
                 throw BookReadException("不是有效的 EPUB/ZIP 文件")

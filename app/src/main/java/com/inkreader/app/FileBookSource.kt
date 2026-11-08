@@ -14,6 +14,8 @@ class FileBookSource(
 ) : BookSource {
     override val size: Long = file.length()
 
+    override fun localFile(): File = file
+
     override fun readAll(): ByteArray = file.readBytes()
 
     override fun close() = Unit

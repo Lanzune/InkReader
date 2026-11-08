@@ -80,6 +80,7 @@ import com.inkreader.kernel.api.BuiltInThemes
 import com.inkreader.kernel.api.Chapter
 import com.inkreader.kernel.api.ChapterImage
 import com.inkreader.kernel.api.PageInfo
+import com.inkreader.kernel.api.OpenContext
 import com.inkreader.kernel.api.ReaderTheme
 import com.inkreader.kernel.core.BookOpener
 import com.inkreader.kernel.core.ContentBookSource
@@ -314,8 +315,47 @@ private fun InkReaderApp() {
                         ContentBookSource(context, uri)
                     }
                     try {
+                        val resumeOffset = if (saved?.uri == uri.toString()) {
+                            saved?.charOffset ?: initialOffset
+                        } else {
+                            initialOffset
+                        }
                         val key = "${uri}#${source.size}#${encoding.orEmpty()}"
                         val cached = bookCache.get()
+                        val preview = if (cached?.first != key && source.localFile() != null &&
+                            mimeTypeForName(source.displayName) == "application/epub+zip"
+                        ) {
+                            runCatching {
+                                EpubFormatProvider().openPreview(
+                                    source,
+                                    OpenContext(source.displayName, source.mimeType, encoding),
+                                    maxChapters = 8,
+                                )?.takeIf { previewBook ->
+                                    resumeOffset <= (previewBook.chapters.firstOrNull()?.text?.length ?: 0)
+                                }
+                            }.getOrNull()
+                        } else {
+                            null
+                        }
+                        if (preview != null) {
+                            val record = SavedReading(
+                                uri = uri.toString(),
+                                title = preview.metadata.title,
+                                charOffset = resumeOffset,
+                                encoding = encoding,
+                            )
+                            readingState.save(record.uri, record.title, record.charOffset, record.encoding)
+                            withContext(Dispatchers.Main) {
+                                saved = record
+                                screen = Screen.Reading(
+                                    preview,
+                                    uri,
+                                    encoding,
+                                    resumeOffset,
+                                )
+                            }
+                        }
+
                         val book = if (cached?.first == key) {
                             cached.second
                         } else {
@@ -337,18 +377,33 @@ private fun InkReaderApp() {
                 }
             }
             result.onSuccess { book ->
+                val current = screen
+                if (current is Screen.Home) return@onSuccess
+                // Preview is already interactive. Keep it while the full document
+                // is parsed; replacing it later preserves the current page because
+                // the reader keeps its char offset and reuses the existing text
+                // until the full rich text is ready.
+                val resumeOffset = if (current is Screen.Reading && current.uri == uri) {
+                    saved?.charOffset ?: current.initialOffset
+                } else {
+                    initialOffset
+                }
                 val record = SavedReading(
                     uri = uri.toString(),
                     title = book.metadata.title,
-                    charOffset = initialOffset,
+                    charOffset = resumeOffset,
                     encoding = encoding,
                 )
                 readingState.save(record.uri, record.title, record.charOffset, record.encoding)
                 saved = record
-                screen = Screen.Reading(book, uri, encoding, initialOffset)
+                screen = Screen.Reading(book, uri, encoding, resumeOffset)
             }.onFailure { failure ->
-                error = failure.message ?: "打开文件失败"
-                screen = Screen.Home
+                if (screen is Screen.Reading) {
+                    error = failure.message ?: "完整内容加载失败"
+                } else {
+                    error = failure.message ?: "打开文件失败"
+                    screen = Screen.Home
+                }
             }
         }
     }
@@ -517,6 +572,7 @@ private fun InkReaderApp() {
                 )
             } else {
                 ReaderScreen(
+                    bookKey = current.uri.toString(),
                     book = current.book,
                     encoding = current.encoding,
                     pluginTheme = pluginSnapshot?.theme,
@@ -762,6 +818,7 @@ private fun LoadingScreen() {
 
 @Composable
 private fun ReaderScreen(
+    bookKey: String,
     book: BookDocument,
     encoding: String?,
     pluginTheme: ReaderTheme?,
@@ -776,13 +833,17 @@ private fun ReaderScreen(
     val chapter = book.chapters.first()
     val context = LocalContext.current
     val needsRichText = chapter.images.isNotEmpty() || chapter.styles.isNotEmpty() || chapter.links.isNotEmpty()
-    var readerText by remember(chapter) {
-        mutableStateOf<CharSequence>(if (needsRichText) "" else chapter.text)
-    }
-    var appliedText by remember(chapter) { mutableStateOf<CharSequence?>(null) }
-    var pageReady by remember(chapter) { mutableStateOf(!needsRichText) }
-    LaunchedEffect(chapter, book.resources) {
-        if (!needsRichText) return@LaunchedEffect
+    var readerText by remember(bookKey) { mutableStateOf<CharSequence?>(null) }
+    var appliedText by remember(bookKey) { mutableStateOf<CharSequence?>(null) }
+    var pageReady by remember(bookKey) { mutableStateOf(false) }
+    LaunchedEffect(bookKey, chapter, book.resources) {
+        if (readerText == null) {
+            readerText = if (needsRichText) "" else chapter.text
+        }
+        if (!needsRichText) {
+            readerText = chapter.text
+            return@LaunchedEffect
+        }
         val rich = withContext(Dispatchers.Default) {
             buildReaderText(context, chapter, book.resources)
         }
@@ -875,7 +936,7 @@ private fun ReaderScreen(
                         goToCharOffset(target)
                     }
                     onPageReady = { pageReady = true }
-                    setContent(readerText, theme, initialCharOffset)
+                    setContent(readerText ?: "", theme, initialCharOffset)
                     appliedText = readerText
                     readerView = this
                 }
@@ -885,8 +946,7 @@ private fun ReaderScreen(
                 surface.setTheme(theme)
                 surface.applyStyle(style)
                 if (appliedText !== readerText) {
-                    pageReady = false
-                    surface.setContent(readerText, theme, surface.currentCharOffset())
+                    surface.setContent(readerText ?: "", theme, surface.currentCharOffset())
                     appliedText = readerText
                 }
             },

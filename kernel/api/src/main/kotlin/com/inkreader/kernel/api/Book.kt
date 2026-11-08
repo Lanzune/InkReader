@@ -15,6 +15,9 @@ interface BookSource {
     val size: Long
     fun readAll(): ByteArray
     fun close()
+
+    /** Optional local file for formats that can use random access (EPUB preview). */
+    fun localFile(): java.io.File? = null
 }
 
 data class BookMetadata(

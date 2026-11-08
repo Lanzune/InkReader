@@ -17,6 +17,8 @@ import com.inkreader.kernel.api.LayoutKind
 import com.inkreader.kernel.api.OpenContext
 import com.inkreader.kernel.api.TocEntry
 import org.w3c.dom.Element
+import java.io.File
+import java.util.zip.ZipFile
 
 /**
  * EPUB 2/3 text provider.
@@ -45,6 +47,73 @@ class EpubFormatProvider : FormatProvider {
         val packageInfo = readPackage(archive)
         val navigation = readNavigation(archive, packageInfo)
         return buildDocument(archive, packageInfo, navigation, source.displayName)
+    }
+
+    /**
+     * Random-access preview for a local EPUB. It reads only metadata, navigation
+     * and the first few spine documents, so the reader can paint the first page
+     * before the full book is parsed.
+     */
+    fun openPreview(
+        source: BookSource,
+        context: OpenContext,
+        maxChapters: Int = 8,
+    ): BookDocument? {
+        val file = source.localFile() ?: return null
+        if (!file.isFile) return null
+        ZipFile(file).use { zip ->
+            val containerBytes = readZipEntry(zip, "META-INF/container.xml") ?: return null
+            val opfPath = EpubXml.run {
+                val document = parse(containerBytes)
+                val rootfile = first(document.documentElement, "rootfile")
+                attribute(rootfile ?: return@run null, "full-path")
+                    ?.let { EpubArchive.resolve("", it) }
+            } ?: return null
+            val opfBytes = readZipEntry(zip, opfPath) ?: return null
+            val baseEntries = linkedMapOf(
+                "META-INF/container.xml" to containerBytes,
+                opfPath to opfBytes,
+            )
+            val packageInfo = readPackage(EpubArchive.fromEntries(baseEntries))
+            val navItem = packageInfo.manifest.values.firstOrNull {
+                "nav" in it.properties && it.path.endsWith(".xhtml", ignoreCase = true)
+            }
+            val ncxItem = packageInfo.tocId?.let { packageInfo.manifest[it] }
+                ?: packageInfo.manifest.values.firstOrNull {
+                    it.mediaType.equals("application/x-dtbncx+xml", ignoreCase = true)
+                }
+            listOfNotNull(navItem, ncxItem).forEach { item ->
+                readZipEntry(zip, item.path)?.let { baseEntries[item.path] = it }
+            }
+            val navigation = readNavigation(EpubArchive.fromEntries(baseEntries), packageInfo)
+
+            val selected = packageInfo.spine.take(maxChapters.coerceAtLeast(1))
+            for (item in selected) {
+                val bytes = readZipEntry(zip, item.path) ?: continue
+                baseEntries[item.path] = bytes
+                val html = EpubArchive.fromEntries(baseEntries).text(item.path) ?: continue
+                val rich = XhtmlText.extractRich(html)
+                val baseDir = EpubArchive.baseDir(item.path)
+                for (image in rich.images) {
+                    val path = EpubArchive.resolve(baseDir, image.src) ?: continue
+                    readZipEntry(zip, path)?.let { baseEntries[path] = it }
+                }
+            }
+            if (selected.isEmpty()) return null
+            val previewArchive = EpubArchive.fromEntries(baseEntries)
+            return buildDocument(
+                previewArchive,
+                packageInfo.copy(spine = selected),
+                navigation,
+                source.displayName,
+            )
+        }
+    }
+
+    private fun readZipEntry(zip: ZipFile, path: String): ByteArray? {
+        val entry = zip.getEntry(path) ?: return null
+        if (entry.size > 30L * 1024 * 1024) return null
+        return zip.getInputStream(entry).use { it.readBytes() }
     }
 
     private fun readPackage(archive: EpubArchive): PackageInfo {
