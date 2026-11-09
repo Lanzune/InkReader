@@ -49,7 +49,12 @@ enum class InlineStyleKind {
     INDENT,
     ALIGN_CENTER,
     ALIGN_RIGHT,
+    ALIGN_LEFT,
     FIRST_LINE_INDENT,
+    EPIGRAPH,
+    EPIGRAPH_SOURCE,
+    NOTE,
+    NOTE_SEPARATOR,
 }
 
 data class ChapterStyle(
@@ -62,6 +67,8 @@ data class ChapterLink(
     val start: Int,
     val endExclusive: Int,
     val targetOffset: Int,
+    /** Stable EPUB path#fragment; used when the target is outside the loaded window. */
+    val targetKey: String? = null,
 )
 
 data class Chapter(
@@ -77,6 +84,11 @@ data class Chapter(
      * so reading positions stay stable when the full book is loaded.
      */
     val baseOffset: Int = 0,
+    /**
+     * Chapter-local offsets that must start a new reading page. These come
+     * from the EPUB navigation/spine/heading structure, not from heuristics.
+     */
+    val pageBreaks: List<Int> = emptyList(),
 )
 
 /** Spine-level offset map used to reopen near the saved position. */
@@ -91,6 +103,10 @@ data class ChapterMark(
 data class TocEntry(
     val title: String,
     val charOffset: Int,
+    /** 0 = top level; descendants keep the EPUB navigation depth. */
+    val depth: Int = 0,
+    /** EPUB path#fragment; used to resolve entries outside the preview window. */
+    val targetKey: String? = null,
 )
 
 enum class LayoutKind {
@@ -107,6 +123,8 @@ data class BookDocument(
     val resources: Map<String, ByteArray> = emptyMap(),
     /** Global spine offsets; empty for formats without a chapter map. */
     val chapterMarks: List<ChapterMark> = emptyList(),
+    /** Stable EPUB path#fragment -> global character offset. */
+    val internalTargets: Map<String, Int> = emptyMap(),
 )
 
 data class FormatMatch(

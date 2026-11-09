@@ -14,7 +14,7 @@
 
 ## 当前状态
 
-**阶段：M9.1/M9.2 完成，0.9.0：百分比内核 + 页码插件。**
+**阶段：M9.6 完成，0.9.3：EPUB 内部导航、目录层级与脚注。**
 
 - M0～M2：TXT 阅读器完成，标签 `m2-txt-reader`
 - M3：EPUB 完成，标签 `m3-epub`
@@ -25,6 +25,9 @@
 - M8：打开速度、大书安全模式、持久页索引，0.8.0–0.8.5
 - M9.1：字符百分比内核，关闭页插件时不做全书分页，0.9.0
 - M9.2：`progress.contribute` + 页码插件，0.9.0
+- M9.4：NAV/NCX + 标题结构驱动章节分页，0.9.1
+- M9.5：外部 CSS、标题层级、章首引语、正文 2em 缩进，0.9.2
+- M9.6：目录层级/内部链接、脚注双向跳转与注释区，0.9.3
 - 后续：多插件安装管理、发布检查、低端机验收
 
 性能测试：`scripts/bench-open.cmd -Runs 5`
@@ -32,6 +35,9 @@
 EPUB 预览：[m8b-preview](docs/quality/2026-11-08-m8b-preview.md)
 大书与格式矩阵：[m8d-large-and-matrix](docs/quality/2026-11-08-m8d-large-and-matrix.md)
 百分比与页码插件：[m9-percent-plugin](docs/quality/2026-11-08-m9-percent-plugin.md)
+章节分页：[chapter-pagination](docs/quality/2026-11-09-chapter-pagination.md)
+EPUB 排版：[epub-typography](docs/quality/2026-11-09-epub-typography.md)
+内部导航与脚注：[navigation-footnotes](docs/quality/2026-11-10-navigation-footnotes.md)
 插件开发：[plugin-dev](docs/plugin-dev.md) · 示例：[page-number](examples/page-number/)
 
 下一步：M9.3 多插件安装管理。

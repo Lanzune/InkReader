@@ -13,6 +13,7 @@ import android.view.View
  */
 class ReaderLinkSpan(
     val targetOffset: Int,
+    val targetKey: String? = null,
 ) : ClickableSpan() {
     override fun updateDrawState(ds: TextPaint) {
         ds.isUnderlineText = true

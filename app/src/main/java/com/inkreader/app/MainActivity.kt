@@ -99,6 +99,8 @@ import com.inkreader.plugin.quickjs.PluginManifestParser
 import com.inkreader.plugin.quickjs.PluginSnapshot
 import com.inkreader.plugin.quickjs.QuickJsPluginHost
 import com.inkreader.plugin.quickjs.ReaderProgressState
+import com.inkreader.reader.engine.FirstLineIndentSpan
+import com.inkreader.reader.engine.FootnoteSeparatorSpan
 import com.inkreader.reader.engine.ReaderLinkSpan
 import com.inkreader.reader.engine.ReaderSurfaceView
 import kotlinx.coroutines.Dispatchers
@@ -157,6 +159,7 @@ private fun InkReaderApp(initialUri: String? = null) {
     var screen: Screen by remember { mutableStateOf(Screen.Home) }
     var initialUriHandled by remember { mutableStateOf(false) }
     var pendingFullReading by remember { mutableStateOf<Screen.Reading?>(null) }
+    var pendingLinkKey by remember { mutableStateOf<String?>(null) }
     var largeBookMode by remember { mutableStateOf(false) }
     var largeBookFile by remember { mutableStateOf<File?>(null) }
     var largeBookName by remember { mutableStateOf<String?>(null) }
@@ -882,6 +885,8 @@ private fun InkReaderApp(initialUri: String? = null) {
                     progressPlugin = progressPlugin,
                     lazyLarge = current.lazyLarge,
                     fullBookReady = pendingFullReading != null,
+                    pendingLinkKey = pendingLinkKey,
+                    onPendingLink = { pendingLinkKey = it },
                     onExtendLarge = { extendLargeBook() },
                     onRequestFull = {
                         pendingFullReading?.let { pending ->
@@ -1196,6 +1201,8 @@ private fun ReaderScreen(
     progressPlugin: PluginSnapshot?,
     lazyLarge: Boolean,
     fullBookReady: Boolean,
+    pendingLinkKey: String?,
+    onPendingLink: (String?) -> Unit,
     onExtendLarge: () -> Unit,
     onRequestFull: () -> Unit,
     onSettingsChange: (ReaderSettings) -> Unit,
@@ -1219,15 +1226,27 @@ private fun ReaderScreen(
         progressPlugin.manifest?.capabilities?.contains("reader.pagination") == true &&
         !lazyLarge
     val fullPagination = pageNumberPluginActive && !partial
-    LaunchedEffect(bookKey, chapter, book.resources) {
+    LaunchedEffect(bookKey, chapter, book.resources, settings.fontSizeSp) {
         if (!needsRichText) {
             readerText = chapter.text
             return@LaunchedEffect
         }
         val rich = withContext(Dispatchers.Default) {
-            buildReaderText(context, chapter, book.resources, bookKey)
+            buildReaderText(
+                context,
+                chapter,
+                book.resources,
+                bookKey,
+                settings.fontSizeSp,
+            )
         }
         readerText = rich
+    }
+
+    LaunchedEffect(fullBookReady, pendingLinkKey) {
+        if (pendingLinkKey != null && fullBookReady && partial) {
+            onRequestFull()
+        }
     }
 
     fun syncPageIndex(surface: ReaderSurfaceView) {
@@ -1299,6 +1318,13 @@ private fun ReaderScreen(
     var commandPaletteVisible by remember { mutableStateOf(false) }
     var readerView by remember { mutableStateOf<ReaderSurfaceView?>(null) }
     var linkHistory by remember { mutableStateOf<List<Int>>(emptyList()) }
+
+    LaunchedEffect(readerText, appliedText, pendingLinkKey, readerView) {
+        val key = pendingLinkKey ?: return@LaunchedEffect
+        val target = book.internalTargets[key] ?: return@LaunchedEffect
+        readerView?.goToCharOffset(target)
+        onPendingLink(null)
+    }
 
     val systemDark = isSystemInDarkTheme()
     val theme = when (settings.themeMode) {
@@ -1388,9 +1414,17 @@ private fun ReaderScreen(
                         }
                     }
                     onCenterTap = { controlsVisible = !controlsVisible }
-                    onLinkTap = { target ->
+                    onLinkTap = { link ->
                         linkHistory = linkHistory + currentCharOffset()
-                        goToCharOffset(target)
+                        if (link.targetOffset >= 0) {
+                            goToCharOffset(link.targetOffset)
+                        } else {
+                            val key = link.targetKey
+                            if (key != null) {
+                                onPendingLink(key)
+                                if (fullBookReady) onRequestFull()
+                            }
+                        }
                     }
                     onPageReady = {
                         pageReady = true
@@ -1411,6 +1445,7 @@ private fun ReaderScreen(
                         initialCharOffset,
                         chapter.baseOffset,
                         isFullBook = !partial,
+                        pageBreaks = chapter.pageBreaks,
                     )
                     appliedText = readerText
                     readerView = this
@@ -1432,6 +1467,7 @@ private fun ReaderScreen(
                         restoreOffset,
                         chapter.baseOffset,
                         isFullBook = !partial,
+                        pageBreaks = chapter.pageBreaks,
                     )
                     appliedText = readerText
                     pendingOffset = null
@@ -1498,15 +1534,25 @@ private fun ReaderScreen(
                         ) {
                             book.toc.forEach { entry ->
                                 DropdownMenuItem(
+                                    modifier = Modifier.padding(
+                                        start = (entry.depth * 16).dp,
+                                    ),
                                     text = {
                                         Text(
-                                            text = entry.title,
+                                            text = "• ${entry.title}",
                                             maxLines = 1,
                                             overflow = TextOverflow.Ellipsis,
                                         )
                                     },
                                     onClick = {
-                                        readerView?.goToCharOffset(entry.charOffset)
+                                        if (entry.charOffset >= 0) {
+                                            readerView?.goToCharOffset(entry.charOffset)
+                                        } else {
+                                            entry.targetKey?.let { key ->
+                                                onPendingLink(key)
+                                                if (fullBookReady) onRequestFull()
+                                            }
+                                        }
                                         tocVisible = false
                                     },
                                 )
@@ -1803,6 +1849,9 @@ internal fun appendWindow(current: BookDocument, window: BookDocument): BookDocu
                 images = images,
                 styles = styles,
                 links = links,
+                pageBreaks = (cur.pageBreaks + win.pageBreaks.map { it + shift })
+                    .distinct()
+                    .sorted(),
             ),
         ),
         toc = toc,
@@ -1839,13 +1888,16 @@ private fun buildReaderText(
     chapter: Chapter,
     resources: Map<String, ByteArray>,
     cachePrefix: String,
+    fontSizeSp: Float,
 ): CharSequence {
     if (chapter.images.isEmpty() && chapter.styles.isEmpty() && chapter.links.isEmpty()) {
         return chapter.text
     }
 
     val builder = SpannableStringBuilder(chapter.text)
-    val indentPx = (24 * context.resources.displayMetrics.density).toInt()
+    val displayMetrics = context.resources.displayMetrics
+    val indentPx = (fontSizeSp * 2f * displayMetrics.scaledDensity).toInt()
+    val blockIndentPx = (fontSizeSp * 2f * displayMetrics.scaledDensity).toInt()
     for (style in chapter.styles) {
         val start = style.start.coerceIn(0, builder.length)
         val end = style.endExclusive.coerceIn(start, builder.length)
@@ -1865,7 +1917,7 @@ private fun buildReaderText(
             )
             com.inkreader.kernel.api.InlineStyleKind.HEADING1 -> {
                 builder.setSpan(
-                    RelativeSizeSpan(1.45f),
+                    RelativeSizeSpan(1.55f),
                     start,
                     end,
                     Spannable.SPAN_EXCLUSIVE_EXCLUSIVE,
@@ -1879,7 +1931,7 @@ private fun buildReaderText(
             }
             com.inkreader.kernel.api.InlineStyleKind.HEADING2 -> {
                 builder.setSpan(
-                    RelativeSizeSpan(1.28f),
+                    RelativeSizeSpan(1.35f),
                     start,
                     end,
                     Spannable.SPAN_EXCLUSIVE_EXCLUSIVE,
@@ -1923,8 +1975,65 @@ private fun buildReaderText(
                 end,
                 Spannable.SPAN_EXCLUSIVE_EXCLUSIVE,
             )
+            com.inkreader.kernel.api.InlineStyleKind.ALIGN_LEFT -> builder.setSpan(
+                AlignmentSpan.Standard(Layout.Alignment.ALIGN_NORMAL),
+                start,
+                end,
+                Spannable.SPAN_EXCLUSIVE_EXCLUSIVE,
+            )
             com.inkreader.kernel.api.InlineStyleKind.FIRST_LINE_INDENT -> builder.setSpan(
-                LeadingMarginSpan.Standard(indentPx, 0),
+                FirstLineIndentSpan(indentPx, start),
+                start,
+                end,
+                Spannable.SPAN_EXCLUSIVE_EXCLUSIVE,
+            )
+            com.inkreader.kernel.api.InlineStyleKind.EPIGRAPH -> {
+                builder.setSpan(
+                    RelativeSizeSpan(0.92f),
+                    start,
+                    end,
+                    Spannable.SPAN_EXCLUSIVE_EXCLUSIVE,
+                )
+                builder.setSpan(
+                    LeadingMarginSpan.Standard(blockIndentPx),
+                    start,
+                    end,
+                    Spannable.SPAN_EXCLUSIVE_EXCLUSIVE,
+                )
+            }
+            com.inkreader.kernel.api.InlineStyleKind.EPIGRAPH_SOURCE -> {
+                builder.setSpan(
+                    RelativeSizeSpan(0.85f),
+                    start,
+                    end,
+                    Spannable.SPAN_EXCLUSIVE_EXCLUSIVE,
+                )
+                builder.setSpan(
+                    AlignmentSpan.Standard(Layout.Alignment.ALIGN_OPPOSITE),
+                    start,
+                    end,
+                    Spannable.SPAN_EXCLUSIVE_EXCLUSIVE,
+                )
+            }
+            com.inkreader.kernel.api.InlineStyleKind.NOTE -> {
+                builder.setSpan(
+                    RelativeSizeSpan(0.86f),
+                    start,
+                    end,
+                    Spannable.SPAN_EXCLUSIVE_EXCLUSIVE,
+                )
+                builder.setSpan(
+                    LeadingMarginSpan.Standard(0, blockIndentPx),
+                    start,
+                    end,
+                    Spannable.SPAN_EXCLUSIVE_EXCLUSIVE,
+                )
+            }
+            com.inkreader.kernel.api.InlineStyleKind.NOTE_SEPARATOR -> builder.setSpan(
+                FootnoteSeparatorSpan(
+                    noteStart = start,
+                    insetPx = 8 * displayMetrics.density,
+                ),
                 start,
                 end,
                 Spannable.SPAN_EXCLUSIVE_EXCLUSIVE,
@@ -1934,9 +2043,9 @@ private fun buildReaderText(
     for (link in chapter.links) {
         val start = link.start.coerceIn(0, builder.length)
         val end = link.endExclusive.coerceIn(start, builder.length)
-        if (start >= end || link.targetOffset < 0) continue
+        if (start >= end || (link.targetOffset < 0 && link.targetKey == null)) continue
         builder.setSpan(
-            ReaderLinkSpan(link.targetOffset),
+            ReaderLinkSpan(link.targetOffset, link.targetKey),
             start,
             end,
             Spannable.SPAN_EXCLUSIVE_EXCLUSIVE,

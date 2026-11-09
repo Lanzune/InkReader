@@ -35,12 +35,34 @@ internal object XhtmlText {
         val charOffset: Int,
     )
 
+    data class RichHeading(
+        val level: Int,
+        val start: Int,
+        val endExclusive: Int,
+        val id: String? = null,
+    )
+
+    data class RichParagraph(
+        val start: Int,
+        val endExclusive: Int,
+        val tag: String,
+        val classes: List<String>,
+        val align: String?,
+        val firstLineIndent: Boolean,
+        val indentSpecified: Boolean,
+        val leftMarginEm: Float,
+        val rightMarginEm: Float,
+        val fontScale: Float,
+    )
+
     data class RichText(
         val text: String,
         val images: List<RichImage>,
         val styles: List<RichStyle> = emptyList(),
         val links: List<RichLink> = emptyList(),
         val anchors: List<RichAnchor> = emptyList(),
+        val headings: List<RichHeading> = emptyList(),
+        val paragraphs: List<RichParagraph> = emptyList(),
     )
 
     private val headPattern = Regex("(?is)<head\\b.*?</head\\s*>")
@@ -49,6 +71,7 @@ internal object XhtmlText {
     )
     private val commentPattern = Regex("(?s)<!--.*?-->")
     private val breakPattern = Regex("(?i)<br\\s*/?>")
+    private val horizontalRulePattern = Regex("(?i)<hr\\b[^>]*>")
     private val blockEndPattern = Regex(
         "(?i)</(p|div|h[1-6]|li|blockquote|tr|section|article|header|footer|figcaption|pre)\\s*>",
     )
@@ -64,13 +87,15 @@ internal object XhtmlText {
     private val h3TagPattern = Regex("(?i)<(/?)h3\\b[^>]*>")
     private val h4TagPattern = Regex("(?i)<(/?)h[4-6]\\b[^>]*>")
     private val blockquoteTagPattern = Regex("(?i)<(/?)blockquote\\b[^>]*>")
+    private val listTagPattern = Regex("(?i)<(/?)(ul|ol)\\b[^>]*>")
+    private val listItemPattern = Regex("(?i)<li\\b[^>]*>|</li\\s*>")
     private val paragraphOpenPattern = Regex("(?i)<p\\b([^>]*)>")
-    private val paragraphClosePattern = Regex("(?i)</p\\s*>")
-    private val headingOpenPattern = Regex("(?i)<h[1-6]\\b([^>]*)>")
+    private val paragraphClosePattern = Regex("(?i)</p\\s*>\\s*")
+    private val headingOpenPattern = Regex("(?i)<h([1-6])\\b([^>]*)>")
     private val headingClosePattern = Regex("(?i)</h[1-6]\\s*>")
-    private val alignAttributePattern = Regex("""(?i)\balign\s*=\s*["']?(center|right)""")
+    private val alignAttributePattern = Regex("""(?i)\balign\s*=\s*["']?(left|center|right)""")
     private val textAlignPattern = Regex(
-        """(?i)\btext-align\s*:\s*(center|right)""",
+        """(?i)\btext-align\s*:\s*(left|center|right)""",
     )
     private val anchorOpenPattern = Regex("(?i)<a\\b([^>]*)>")
     private val anchorClosePattern = Regex("(?i)</a\\s*>")
@@ -83,17 +108,30 @@ internal object XhtmlText {
     private val styleBlockPattern = Regex("(?is)<style\\b[^>]*>(.*?)</style\\s*>")
     private val cssRulePattern = Regex("(?is)([^{}]+)\\{([^{}]*)\\}")
     private val textIndentPattern = Regex("""(?i)\btext-indent\s*:\s*([^;]+)""")
+    private val marginLeftPattern = Regex("""(?i)\bmargin-left\s*:\s*([^;]+)""")
+    private val marginRightPattern = Regex("""(?i)\bmargin-right\s*:\s*([^;]+)""")
+    private val fontSizePattern = Regex("""(?i)\bfont-size\s*:\s*([^;]+)""")
     private val horizontalSpacePattern = Regex("[\\t ]+")
     private val excessiveNewlinesPattern = Regex("\\n{3,}")
     private const val ALIGN_CENTER_OPEN = '\uE010'
     private const val ALIGN_RIGHT_OPEN = '\uE011'
     private const val ALIGN_CLOSE = '\uE012'
+    private const val ALIGN_LEFT_OPEN = '\uE013'
     private const val LINK_OPEN = '\uE020'
     private const val LINK_CLOSE = '\uE021'
     private const val ANCHOR = '\uE022'
     private const val ANCHOR_EXTRA = '\uE023'
     private const val FIRST_INDENT_OPEN = '\uE030'
     private const val FIRST_INDENT_CLOSE = '\uE031'
+    private const val PARAGRAPH_CLOSE = '\uE040'
+    private const val PARAGRAPH_OPEN = '\uE041'
+    private const val BLOCKQUOTE_OPEN = '\uE042'
+    private const val BLOCKQUOTE_CLOSE = '\uE043'
+    private const val LIST_OPEN = '\uE044'
+    private const val LIST_CLOSE = '\uE045'
+    private const val LIST_ITEM_OPEN = '\uE046'
+    private const val LIST_ITEM_CLOSE = '\uE047'
+    private const val HARD_BREAK = '\uE050'
     private const val IMAGE_PLACEHOLDER = '\uFFFC'
     private const val BOLD_OPEN = '\uE000'
     private const val BOLD_CLOSE = '\uE001'
@@ -108,17 +146,26 @@ internal object XhtmlText {
     private const val INDENT_OPEN = '\uE00A'
     private const val INDENT_CLOSE = '\uE00B'
 
-    fun extract(html: String): String = extractRich(html).text
+    fun extract(html: String, compactParagraphs: Boolean = false): String =
+        extractRich(html, compactParagraphs).text
 
-    fun extractRich(html: String): RichText {
+    fun extractRich(
+        html: String,
+        compactParagraphs: Boolean = false,
+    ): RichText {
         val images = mutableListOf<Pair<String, String>>()
         val linkTargets = mutableListOf<String>()
         val anchorIds = mutableListOf<String>()
         val extraAnchorIds = mutableListOf<String>()
+        val headingIds = Regex("(?i)<h[1-6]\\b([^>]*)>").findAll(html)
+            .map { match -> idPattern.find(match.groupValues[1])?.groupValues?.get(1)?.trim() }
+            .toList()
+        var headingSequence = 0
         val css = parseCss(html)
+        val paragraphMetas = mutableListOf<BlockMeta>()
         var text = markLinks(html, linkTargets, anchorIds)
         text = markExtraAnchors(text, extraAnchorIds)
-        text = markAlignment(text, css)
+        text = markAlignment(text, css, paragraphMetas)
         text = markStyles(text)
         text = imagePattern.replace(text) { match ->
             val tag = match.value
@@ -134,19 +181,24 @@ internal object XhtmlText {
         text = headPattern.replace(text, " ")
         text = hiddenPattern.replace(text, " ")
         text = commentPattern.replace(text, " ")
-        text = breakPattern.replace(text, "\n")
+        text = breakPattern.replace(text, HARD_BREAK.toString())
+        text = horizontalRulePattern.replace(text, "\n\n")
         text = blockEndPattern.replace(text, "\n\n")
         text = tagPattern.replace(text, "")
         text = decodeEntities(text)
         text = text.replace('\u00A0', ' ')
         text = text.replace("\r\n", "\n").replace('\r', '\n')
-        text = text.lines().joinToString("\n") { line ->
-            line.replace(horizontalSpacePattern, " ").trim()
-        }
+        // Source line breaks inside a paragraph are just HTML whitespace. Only
+        // block ends and explicit <br> create line breaks.
+        text = text.replace(Regex("(?<!\\n)\\n(?!\\n)"), " ")
+        text = text.replace(horizontalSpacePattern, " ")
+        text = text.replace(Regex(" *\\n *"), "\n")
+        text = text.replace(HARD_BREAK, '\n')
         text = text.replace(excessiveNewlinesPattern, "\n\n").trim()
 
         val clean = StringBuilder(text.length)
         val styles = mutableListOf<RichStyle>()
+        val headings = mutableListOf<RichHeading>()
         var boldDepth = 0
         var boldStart = -1
         var italicDepth = 0
@@ -163,12 +215,20 @@ internal object XhtmlText {
         var alignKind: InlineStyleKind? = null
         var firstIndentDepth = 0
         var firstIndentStart = -1
+        var paragraphCompact = false
+        var paragraphStart = 0
+        var currentParagraphMeta: BlockMeta? = null
+        var blockquoteDepth = 0
+        var listDepth = 0
+        var listItemStart = -1
         var linkIndex = 0
         var anchorIndex = 0
         var extraAnchorIndex = 0
         val linkStack = ArrayDeque<Pair<String, Int>>()
         val richLinks = mutableListOf<RichLink>()
         val richAnchors = mutableListOf<RichAnchor>()
+        val richParagraphs = mutableListOf<RichParagraph>()
+        var paragraphMetaIndex = 0
 
         fun closeAlignment() {
             if (alignStart >= 0 && alignStart < clean.length) {
@@ -225,9 +285,18 @@ internal object XhtmlText {
                                 styles.add(
                                     RichStyle(h1Start, clean.length, InlineStyleKind.HEADING1),
                                 )
+                                headings.add(
+                                    RichHeading(
+                                        1,
+                                        h1Start,
+                                        clean.length,
+                                        headingIds.getOrNull(headingSequence),
+                                    ),
+                                )
                             }
                             h1Start = -1
                         }
+                        headingSequence += 1
                     }
                 }
                 H2_OPEN -> {
@@ -242,9 +311,18 @@ internal object XhtmlText {
                                 styles.add(
                                     RichStyle(h2Start, clean.length, InlineStyleKind.HEADING2),
                                 )
+                                headings.add(
+                                    RichHeading(
+                                        2,
+                                        h2Start,
+                                        clean.length,
+                                        headingIds.getOrNull(headingSequence),
+                                    ),
+                                )
                             }
                             h2Start = -1
                         }
+                        headingSequence += 1
                     }
                 }
                 H3_OPEN -> {
@@ -259,9 +337,18 @@ internal object XhtmlText {
                                 styles.add(
                                     RichStyle(h3Start, clean.length, InlineStyleKind.HEADING3),
                                 )
+                                headings.add(
+                                    RichHeading(
+                                        3,
+                                        h3Start,
+                                        clean.length,
+                                        headingIds.getOrNull(headingSequence),
+                                    ),
+                                )
                             }
                             h3Start = -1
                         }
+                        headingSequence += 1
                     }
                 }
                 INDENT_OPEN -> {
@@ -281,6 +368,24 @@ internal object XhtmlText {
                         }
                     }
                 }
+                BLOCKQUOTE_OPEN -> blockquoteDepth += 1
+                BLOCKQUOTE_CLOSE -> if (blockquoteDepth > 0) blockquoteDepth -= 1
+                LIST_OPEN -> {
+                    if (listDepth > 0 && clean.lastOrNull() != '\n') clean.append('\n')
+                    listDepth += 1
+                }
+                LIST_CLOSE -> if (listDepth > 0) listDepth -= 1
+                LIST_ITEM_OPEN -> {
+                    listItemStart = clean.length
+                    clean.append("\u3000".repeat((listDepth - 1).coerceIn(0, 3)))
+                    clean.append("• ")
+                }
+                LIST_ITEM_CLOSE -> {
+                    if (clean.length > listItemStart && clean.lastOrNull() != '\n') {
+                        clean.append('\n')
+                    }
+                    listItemStart = -1
+                }
                 ALIGN_CENTER_OPEN -> {
                     closeAlignment()
                     alignStart = clean.length
@@ -291,9 +396,69 @@ internal object XhtmlText {
                     alignStart = clean.length
                     alignKind = InlineStyleKind.ALIGN_RIGHT
                 }
+                ALIGN_LEFT_OPEN -> {
+                    closeAlignment()
+                    alignStart = clean.length
+                    alignKind = InlineStyleKind.ALIGN_LEFT
+                }
                 ALIGN_CLOSE -> closeAlignment()
+                PARAGRAPH_OPEN -> {
+                    paragraphStart = clean.length
+                    val meta = paragraphMetas.getOrNull(paragraphMetaIndex)
+                    currentParagraphMeta = if (blockquoteDepth > 0) {
+                        meta?.copy(tag = "blockquote")
+                    } else {
+                        meta
+                    }
+                    if (currentParagraphMeta?.classes?.any {
+                            it == "note" || it == "footnote" || it == "endnote" ||
+                                it == "footnotes" || it == "endnotes"
+                        } == true
+                    ) {
+                        paragraphCompact = false
+                    }
+                    paragraphMetaIndex += 1
+                }
+                PARAGRAPH_CLOSE -> {
+                    if (clean.length > paragraphStart) {
+                        currentParagraphMeta?.let { meta ->
+                            richParagraphs.add(
+                                RichParagraph(
+                                    start = paragraphStart,
+                                    endExclusive = clean.length,
+                                    tag = meta.tag,
+                                    classes = meta.classes,
+                                    align = meta.align,
+                                    firstLineIndent = meta.firstLineIndent,
+                                    indentSpecified = meta.indentSpecified,
+                                    leftMarginEm = meta.leftMarginEm,
+                                    rightMarginEm = meta.rightMarginEm,
+                                    fontScale = meta.fontScale,
+                                ),
+                            )
+                        }
+                        clean.append(
+                            if ((paragraphCompact || compactParagraphs) &&
+                                currentParagraphMeta?.classes?.any {
+                                    it == "note" || it == "footnote" || it == "endnote" ||
+                                        it == "footnotes" || it == "endnotes"
+                                } != true
+                            ) {
+                                "\n"
+                            } else {
+                                "\n\n"
+                            },
+                        )
+                    }
+                    currentParagraphMeta = null
+                    paragraphCompact = false
+                    paragraphStart = clean.length
+                }
                 FIRST_INDENT_OPEN -> {
-                    if (firstIndentDepth == 0) firstIndentStart = clean.length
+                    if (firstIndentDepth == 0) {
+                        firstIndentStart = clean.length
+                        paragraphCompact = true
+                    }
                     firstIndentDepth += 1
                 }
                 FIRST_INDENT_CLOSE -> {
@@ -350,22 +515,60 @@ internal object XhtmlText {
             )
         }
         val cleanText = clean.toString()
+        var trimStart = 0
+        while (trimStart < cleanText.length && cleanText[trimStart].isWhitespace()) trimStart += 1
+        var trimEnd = cleanText.length
+        while (trimEnd > trimStart && cleanText[trimEnd - 1].isWhitespace()) trimEnd -= 1
+        val trimmedText = cleanText.substring(trimStart, trimEnd)
+        fun shift(offset: Int): Int = (offset - trimStart).coerceIn(0, trimmedText.length)
+        fun inside(offset: Int): Boolean = offset in trimStart..trimEnd
 
         val richImages = mutableListOf<RichImage>()
         var imageIndex = 0
         cleanText.forEachIndexed { offset, character ->
             if (character == IMAGE_PLACEHOLDER && imageIndex < images.size) {
                 val (src, alt) = images[imageIndex]
-                richImages.add(RichImage(src = src, alt = alt, charOffset = offset))
+                if (inside(offset)) {
+                    richImages.add(
+                        RichImage(src = src, alt = alt, charOffset = shift(offset)),
+                    )
+                }
                 imageIndex += 1
             }
         }
+        val adjustedStyles = styles.mapNotNull { style ->
+            val start = shift(style.start)
+            val end = shift(style.endExclusive)
+            if (start >= end) null else style.copy(start = start, endExclusive = end)
+        }
+        val adjustedLinks = richLinks.mapNotNull { link ->
+            if (!inside(link.start) || !inside(link.endExclusive)) {
+                null
+            } else {
+                link.copy(start = shift(link.start), endExclusive = shift(link.endExclusive))
+            }
+        }
+        val adjustedAnchors = richAnchors
+            .filter { inside(it.charOffset) }
+            .map { it.copy(charOffset = shift(it.charOffset)) }
+        val adjustedHeadings = headings
+            .filter { inside(it.start) && inside(it.endExclusive) }
+            .map {
+                it.copy(start = shift(it.start), endExclusive = shift(it.endExclusive))
+            }
+        val adjustedParagraphs = richParagraphs
+            .filter { inside(it.start) && inside(it.endExclusive) }
+            .map {
+                it.copy(start = shift(it.start), endExclusive = shift(it.endExclusive))
+            }
         return RichText(
-            text = cleanText,
+            text = trimmedText,
             images = richImages,
-            styles = styles,
-            links = richLinks,
-            anchors = richAnchors,
+            styles = adjustedStyles,
+            links = adjustedLinks,
+            anchors = adjustedAnchors,
+            headings = adjustedHeadings,
+            paragraphs = adjustedParagraphs,
         )
     }
 
@@ -409,16 +612,42 @@ internal object XhtmlText {
         }
     }
 
-    private fun markAlignment(html: String, css: Map<String, CssStyle>): String {
+    private fun markAlignment(
+        html: String,
+        css: Map<String, CssStyle>,
+        paragraphMetas: MutableList<BlockMeta>,
+    ): String {
         var text = paragraphOpenPattern.replace(html) { match ->
-            val marker = blockMarkers(match.groupValues[1], "p", css)
-            if (marker.isEmpty()) match.value else "$marker${match.value}"
+            val meta = blockMeta(match.groupValues[1], "p", css)
+            paragraphMetas.add(meta)
+            val marker = StringBuilder()
+            when (meta.align?.lowercase()) {
+                "center" -> marker.append(ALIGN_CENTER_OPEN)
+                "right" -> marker.append(ALIGN_RIGHT_OPEN)
+                "left" -> marker.append(ALIGN_LEFT_OPEN)
+            }
+            if (meta.firstLineIndent) marker.append(FIRST_INDENT_OPEN)
+            "$marker$PARAGRAPH_OPEN${match.value}"
         }
         text = paragraphClosePattern.replace(text) { match ->
-            "$ALIGN_CLOSE$FIRST_INDENT_CLOSE${match.value}"
+            "$ALIGN_CLOSE$FIRST_INDENT_CLOSE$PARAGRAPH_CLOSE"
+        }
+        text = listTagPattern.replace(text) { match ->
+            if (match.groupValues[1] == "/") LIST_CLOSE.toString() else LIST_OPEN.toString()
+        }
+        text = listItemPattern.replace(text) { match ->
+            if (match.value.startsWith("</", ignoreCase = true)) {
+                LIST_ITEM_CLOSE.toString()
+            } else {
+                LIST_ITEM_OPEN.toString()
+            }
         }
         text = headingOpenPattern.replace(text) { match ->
-            val marker = blockMarkers(match.groupValues[1], "h", css)
+            val marker = blockMarkers(
+                match.groupValues[2],
+                "h${match.groupValues[1]}",
+                css,
+            )
             if (marker.isEmpty()) match.value else "$marker${match.value}"
         }
         text = headingClosePattern.replace(text) { match ->
@@ -432,6 +661,33 @@ internal object XhtmlText {
         tag: String,
         css: Map<String, CssStyle>,
     ): String {
+        val meta = blockMeta(attributes, tag, css)
+        val marker = StringBuilder()
+        when (meta.align?.lowercase()) {
+            "center" -> marker.append(ALIGN_CENTER_OPEN)
+            "right" -> marker.append(ALIGN_RIGHT_OPEN)
+            "left" -> marker.append(ALIGN_LEFT_OPEN)
+        }
+        if (meta.firstLineIndent && !tag.startsWith("h")) marker.append(FIRST_INDENT_OPEN)
+        return marker.toString()
+    }
+
+    private data class BlockMeta(
+        val tag: String,
+        val classes: List<String>,
+        val align: String?,
+        val firstLineIndent: Boolean,
+        val indentSpecified: Boolean,
+        val leftMarginEm: Float,
+        val rightMarginEm: Float,
+        val fontScale: Float,
+    )
+
+    private fun blockMeta(
+        attributes: String,
+        tag: String,
+        css: Map<String, CssStyle>,
+    ): BlockMeta {
         val inlineAlign = alignAttributePattern.find(attributes)?.groupValues?.get(1)
             ?: textAlignPattern.find(attributes)?.groupValues?.get(1)
         val classes = classPattern.find(attributes)
@@ -440,28 +696,67 @@ internal object XhtmlText {
             ?.filter { it.isNotBlank() }
             .orEmpty()
         val classStyles = classes.mapNotNull { css[".${it.lowercase()}"] }
-        val tagStyle = css[tag]
+        val tagStyle = css[tag.lowercase()]
         val align = inlineAlign
             ?: classStyles.firstNotNullOfOrNull { it.align }
             ?: tagStyle?.align
-        val indent = (textIndentPattern.find(attributes)?.groupValues?.get(1)
-            ?.let(::isNonZeroIndent)
-            ?: classStyles.any { it.firstLineIndent }) ||
-            tagStyle?.firstLineIndent == true
-
-        val marker = StringBuilder()
-        when (align?.lowercase()) {
-            "center" -> marker.append(ALIGN_CENTER_OPEN)
-            "right" -> marker.append(ALIGN_RIGHT_OPEN)
+        val inlineIndent = textIndentPattern.find(attributes)?.groupValues?.get(1)
+        val indentSpecified = inlineIndent != null ||
+            classStyles.any { it.textIndentSpecified } ||
+            (tagStyle?.textIndentSpecified == true)
+        val indent = when {
+            inlineIndent != null -> isNonZeroIndent(inlineIndent)
+            else -> classStyles.firstOrNull { it.textIndentSpecified }?.firstLineIndent
+                ?: tagStyle?.takeIf { it.textIndentSpecified }?.firstLineIndent
+                ?: false
         }
-        if (indent) marker.append(FIRST_INDENT_OPEN)
-        return marker.toString()
+        val leftMargin = maxOf(
+            parseEm(marginLeftPattern.find(attributes)?.groupValues?.get(1).orEmpty()),
+            classStyles.maxOfOrNull { it.leftMarginEm } ?: 0f,
+            tagStyle?.leftMarginEm ?: 0f,
+        )
+        val rightMargin = maxOf(
+            parseEm(marginRightPattern.find(attributes)?.groupValues?.get(1).orEmpty()),
+            classStyles.maxOfOrNull { it.rightMarginEm } ?: 0f,
+            tagStyle?.rightMarginEm ?: 0f,
+        )
+        val fontScale = classStyles.firstOrNull { it.fontScale != 1f }?.fontScale
+            ?: tagStyle?.fontScale
+            ?: 1f
+        return BlockMeta(
+            tag = tag.lowercase(),
+            classes = classes.map { it.lowercase() },
+            align = align,
+            firstLineIndent = indent,
+            indentSpecified = indentSpecified,
+            leftMarginEm = leftMargin,
+            rightMarginEm = rightMargin,
+            fontScale = fontScale,
+        )
     }
 
     private fun isNonZeroIndent(value: String): Boolean {
         val clean = value.trim().lowercase()
         if (clean.isEmpty() || clean == "none") return false
         return !Regex("""0(?:\.0+)?(?:px|em|rem|%|pt|pc|in|cm|mm)?""").matches(clean)
+    }
+
+    private fun parseEm(value: String): Float {
+        val clean = value.trim().lowercase()
+        val number = clean.removeSuffix("em").removeSuffix("px").removeSuffix("%")
+            .toFloatOrNull() ?: return 0f
+        return when {
+            clean.endsWith("px") -> number / 16f
+            clean.endsWith("%") -> number / 100f
+            else -> number
+        }.coerceIn(0f, 6f)
+    }
+
+    private fun parseFontScale(value: String): Float {
+        val clean = value.trim().lowercase()
+        val number = clean.removeSuffix("em").removeSuffix("%").toFloatOrNull() ?: return 1f
+        val scale = if (clean.endsWith("%")) number / 100f else number
+        return scale.takeIf { it in 0.6f..1.6f } ?: 1f
     }
 
     private fun parseCss(html: String): Map<String, CssStyle> {
@@ -475,11 +770,27 @@ internal object XhtmlText {
                 if (selectors.isEmpty()) continue
                 val body = rule.groupValues[2]
                 val align = textAlignPattern.find(body)?.groupValues?.get(1)
-                val indent = textIndentPattern.find(body)?.groupValues?.get(1)
-                    ?.let(::isNonZeroIndent)
-                    ?: false
-                if (align == null && !indent) continue
-                val style = CssStyle(align = align, firstLineIndent = indent)
+                val textIndentValue = textIndentPattern.find(body)?.groupValues?.get(1)
+                val indent = textIndentValue?.let(::isNonZeroIndent) ?: false
+                val leftMargin = marginLeftPattern.find(body)?.groupValues?.get(1)
+                    ?.let(::parseEm) ?: 0f
+                val rightMargin = marginRightPattern.find(body)?.groupValues?.get(1)
+                    ?.let(::parseEm) ?: 0f
+                val fontScale = fontSizePattern.find(body)?.groupValues?.get(1)
+                    ?.let(::parseFontScale) ?: 1f
+                if (align == null && textIndentValue == null && leftMargin == 0f &&
+                    rightMargin == 0f && fontScale == 1f
+                ) {
+                    continue
+                }
+                val style = CssStyle(
+                    align = align,
+                    textIndentSpecified = textIndentValue != null,
+                    firstLineIndent = indent,
+                    leftMarginEm = leftMargin,
+                    rightMarginEm = rightMargin,
+                    fontScale = fontScale,
+                )
                 for (selector in selectors) {
                     result[selector] = style
                 }
@@ -490,7 +801,11 @@ internal object XhtmlText {
 
     private data class CssStyle(
         val align: String?,
+        val textIndentSpecified: Boolean,
         val firstLineIndent: Boolean,
+        val leftMarginEm: Float,
+        val rightMarginEm: Float,
+        val fontScale: Float,
     )
 
     private fun markStyles(html: String): String {
@@ -513,7 +828,11 @@ internal object XhtmlText {
             if (match.value.startsWith("</")) "$H3_CLOSE\n\n" else "\n\n$H3_OPEN"
         }
         text = blockquoteTagPattern.replace(text) { match ->
-            if (match.value.startsWith("</")) INDENT_CLOSE.toString() else INDENT_OPEN.toString()
+            if (match.value.startsWith("</")) {
+                "$INDENT_CLOSE$BLOCKQUOTE_CLOSE"
+            } else {
+                "$INDENT_OPEN$BLOCKQUOTE_OPEN"
+            }
         }
         return text
     }

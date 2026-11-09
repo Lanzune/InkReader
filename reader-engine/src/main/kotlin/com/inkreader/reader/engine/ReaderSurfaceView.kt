@@ -9,6 +9,7 @@ import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Typeface
 import android.text.Layout
+import android.text.SpannableString
 import android.text.Spanned
 import android.text.StaticLayout
 import android.text.TextPaint
@@ -52,6 +53,7 @@ class ReaderSurfaceView(context: Context) : View(context) {
     private var currentPage: Int = 0
     private var pendingCharOffset: Int? = null
     private var contentBaseOffset: Int = 0
+    private var pageBreaks: IntArray = IntArray(0)
     private var ready = false
     private var pageBitmap: Bitmap? = null
     private var pageSnapshotCache: Bitmap? = null
@@ -75,7 +77,7 @@ class ReaderSurfaceView(context: Context) : View(context) {
 
     var onPageChanged: ((PageInfo) -> Unit)? = null
     var onCenterTap: (() -> Unit)? = null
-    var onLinkTap: ((Int) -> Unit)? = null
+    var onLinkTap: ((ReaderLinkSpan) -> Unit)? = null
     var onPageReady: (() -> Unit)? = null
     var onPageIndexReady: ((IntArray) -> Unit)? = null
     private var pageDrawn = false
@@ -148,7 +150,7 @@ class ReaderSurfaceView(context: Context) : View(context) {
 
     /** Stable key for the persisted page index; layout-affecting values only. */
     fun layoutSignature(): String =
-        "v1|$contentWidth|$paginationHeight|${textPaint.textSize.toInt()}|" +
+        "v5|$contentWidth|$paginationHeight|${textPaint.textSize.toInt()}|" +
             "${style.fontSizeSp}|${style.lineSpacingMultiplier}"
 
     /**
@@ -220,12 +222,18 @@ class ReaderSurfaceView(context: Context) : View(context) {
         initialCharOffset: Int = 0,
         baseOffset: Int = 0,
         isFullBook: Boolean = false,
+        pageBreaks: List<Int> = emptyList(),
     ) {
         cancelPageAnimation()
         releasePageSnapshot()
         content = text
         fullBookContent = isFullBook
         contentBaseOffset = baseOffset.coerceAtLeast(0)
+        this.pageBreaks = pageBreaks
+            .filter { it in 1 until text.length }
+            .distinct()
+            .sorted()
+            .toIntArray()
         theme = readerTheme
         textPaint.color = theme.foreground
         setBackgroundColor(theme.background)
@@ -279,19 +287,29 @@ class ReaderSurfaceView(context: Context) : View(context) {
     }
 
     private fun handleLinkTap(event: MotionEvent): Boolean {
-        val layout = textLayout ?: return false
-        if (pageStarts.isEmpty()) return false
-        val startLine = pageStarts[currentPage.coerceIn(0, pageStarts.size - 1)]
-        val layoutY = event.y - contentTop - pageTopInset + layout.getLineTop(startLine)
+        val fullLayout = textLayout
+        val layout = fullLayout ?: localPageLayout ?: return false
+        if (fullLayout != null && pageStarts.isEmpty()) return false
+        val pageStartOffset = if (fullLayout == null) {
+            localPageStart
+        } else {
+            0
+        }
+        val layoutY = if (fullLayout == null) {
+            event.y - contentTop - pageTopInset
+        } else {
+            val startLine = pageStarts[currentPage.coerceIn(0, pageStarts.size - 1)]
+            event.y - contentTop - pageTopInset + layout.getLineTop(startLine)
+        }
         if (layoutY < 0f) return false
         val line = layout.getLineForVertical(layoutY.toInt())
         val x = event.x - contentLeft
         if (x < 0f || x > contentWidth) return false
-        val offset = layout.getOffsetForHorizontal(line, x)
+        val offset = pageStartOffset + layout.getOffsetForHorizontal(line, x)
         val spanned = content as? Spanned ?: return false
-        val link = spanned.getSpans(offset, offset, ReaderLinkSpan::class.java).firstOrNull()
-            ?: return false
-        onLinkTap?.invoke(link.targetOffset)
+        val hits = spanned.getSpans(offset, offset, ReaderLinkSpan::class.java)
+        val link = hits.firstOrNull() ?: return false
+        onLinkTap?.invoke(link)
         return true
     }
 
@@ -578,6 +596,19 @@ class ReaderSurfaceView(context: Context) : View(context) {
                     end += 1
                 }
                 if (end == start) end = start + 1
+                val startChar = layout.getLineStart(start)
+                val endChar = if (end < layout.lineCount) {
+                    layout.getLineStart(end)
+                } else {
+                    content.length
+                }
+                val breakOffset = nextPageBreakAfter(startChar, endChar)
+                if (breakOffset != null) {
+                    val breakLine = layout.getLineForOffset(breakOffset)
+                    if (breakLine > start && breakLine <= end) {
+                        end = breakLine
+                    }
+                }
                 starts.add(start)
                 start = end
             }
@@ -626,6 +657,26 @@ class ReaderSurfaceView(context: Context) : View(context) {
      * Lays out one page directly instead of laying out the whole book.
      * This is the first-screen path; the full page index refreshes later.
      */
+    private fun pageSlice(start: Int, end: Int): CharSequence {
+        val slice = content.subSequence(start, end)
+        if (slice !is Spanned) return slice
+        val indents = slice.getSpans(0, slice.length, FirstLineIndentSpan::class.java)
+        val separators = slice.getSpans(0, slice.length, FootnoteSeparatorSpan::class.java)
+        if (indents.none { it.paragraphStart < start } &&
+            separators.none { it.noteStart < start }
+        ) {
+            return slice
+        }
+        val copy = SpannableString(slice)
+        for (span in indents) {
+            if (span.paragraphStart < start) copy.removeSpan(span)
+        }
+        for (span in separators) {
+            if (span.noteStart < start) copy.removeSpan(span)
+        }
+        return copy
+    }
+
     private fun buildLocalPage(offset: Int, endOverride: Int? = null) {
         val safeOffset = offset.coerceIn(0, content.length)
         val windowEnd = (safeOffset + LOCAL_WINDOW_CHARS).coerceAtMost(content.length)
@@ -638,7 +689,7 @@ class ReaderSurfaceView(context: Context) : View(context) {
         val end = endOverride
             ?.coerceIn(safeOffset + 1, content.length)
             ?: localPageEndFor(safeOffset)
-        val page = content.subSequence(safeOffset, end)
+        val page = pageSlice(safeOffset, end)
         localPageLayout = buildStaticLayout(page, textPaint, contentWidth, style.lineSpacingMultiplier)
         localPageStart = safeOffset
         localPageEnd = end
@@ -648,7 +699,7 @@ class ReaderSurfaceView(context: Context) : View(context) {
         val safeOffset = offset.coerceIn(0, content.length)
         val windowEnd = (safeOffset + LOCAL_WINDOW_CHARS).coerceAtMost(content.length)
         if (windowEnd <= safeOffset) return safeOffset
-        val window = content.subSequence(safeOffset, windowEnd)
+        val window = pageSlice(safeOffset, windowEnd)
         val layout = buildStaticLayout(window, textPaint, contentWidth, style.lineSpacingMultiplier)
         var endLine = 0
         while (endLine < layout.lineCount &&
@@ -657,11 +708,30 @@ class ReaderSurfaceView(context: Context) : View(context) {
             endLine += 1
         }
         if (endLine == 0) endLine = 1
-        return if (endLine < layout.lineCount) {
+        val naturalEnd = if (endLine < layout.lineCount) {
             (safeOffset + layout.getLineStart(endLine)).coerceAtMost(content.length)
         } else {
             windowEnd
         }.coerceAtLeast(safeOffset + 1)
+        return nextPageBreakAfter(safeOffset, naturalEnd) ?: naturalEnd
+    }
+
+    private fun nextPageBreakAfter(offset: Int, endExclusive: Int): Int? {
+        for (breakOffset in pageBreaks) {
+            if (breakOffset > offset) {
+                return breakOffset.takeIf { it < endExclusive }
+            }
+        }
+        return null
+    }
+
+    private fun lastPageBreakBefore(offset: Int): Int? {
+        var result: Int? = null
+        for (breakOffset in pageBreaks) {
+            if (breakOffset >= offset) break
+            result = breakOffset
+        }
+        return result
     }
 
     private fun pageStart(page: Int): Int {
@@ -749,8 +819,9 @@ class ReaderSurfaceView(context: Context) : View(context) {
     private fun buildLocalPageBefore(offset: Int): Boolean {
         val current = offset.coerceIn(0, content.length)
         if (current <= 0) return false
-        val anchor = (current - LOCAL_WINDOW_CHARS).coerceAtLeast(0)
-        val window = content.subSequence(anchor, current)
+        val previousBreak = lastPageBreakBefore(current) ?: 0
+        val anchor = (current - LOCAL_WINDOW_CHARS).coerceAtLeast(previousBreak)
+        val window = pageSlice(anchor, current)
         val layout = buildStaticLayout(window, textPaint, contentWidth, style.lineSpacingMultiplier)
         val lineAtCurrent = layout.getLineCount() - 1
         var startLine = lineAtCurrent
@@ -760,7 +831,9 @@ class ReaderSurfaceView(context: Context) : View(context) {
         ) {
             startLine -= 1
         }
-        val start = (anchor + layout.getLineStart(startLine)).coerceAtMost(current - 1)
+        val start = (anchor + layout.getLineStart(startLine))
+            .coerceAtMost(current - 1)
+            .coerceAtLeast(previousBreak)
         buildLocalPage(start)
         return true
     }
@@ -785,7 +858,7 @@ class ReaderSurfaceView(context: Context) : View(context) {
             content.length
         }.coerceIn(start, content.length)
 
-        val slice = content.subSequence(start, end)
+        val slice = pageSlice(start, end)
         if (slice.isEmpty()) return null
 
         val pageLayout = StaticLayout.Builder

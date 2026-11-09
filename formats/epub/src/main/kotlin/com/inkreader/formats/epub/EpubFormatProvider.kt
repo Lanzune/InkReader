@@ -14,6 +14,7 @@ import com.inkreader.kernel.api.ChapterMark
 import com.inkreader.kernel.api.ChapterStyle
 import com.inkreader.kernel.api.FormatMatch
 import com.inkreader.kernel.api.FormatProvider
+import com.inkreader.kernel.api.InlineStyleKind
 import com.inkreader.kernel.api.LayoutKind
 import com.inkreader.kernel.api.OpenContext
 import com.inkreader.kernel.api.TocEntry
@@ -110,13 +111,22 @@ class EpubFormatProvider : FormatProvider {
                 ?: 0
             val chapterCache = LinkedHashMap<String, CachedChapter>()
             var imageBudget = maxImageBytes.coerceAtLeast(0)
+            val readCss: (String) -> String? = { path ->
+                readZipEntry(zip, path)?.let { bytes ->
+                    EpubArchive.fromEntries(mapOf(path to bytes)).text(path)
+                }
+            }
             for (item in selected) {
                 val bytes = readZipEntry(zip, item.path) ?: continue
                 baseEntries[item.path] = bytes
                 val html = EpubArchive.fromEntries(baseEntries).text(item.path) ?: continue
-                val rich = XhtmlText.extractRich(html)
-                chapterCache[item.path] = CachedChapter(html, rich)
                 val baseDir = EpubArchive.baseDir(item.path)
+                val rich = XhtmlText.extractRich(
+                    withLinkedStyles(html, baseDir, readCss),
+                    compactParagraphs = packageInfo.metadata.language
+                        ?.startsWith("zh", ignoreCase = true) == true,
+                )
+                chapterCache[item.path] = CachedChapter(html, rich)
                 for (image in rich.images) {
                     if (imageBudget <= 0) break
                     val path = EpubArchive.resolve(baseDir, image.src) ?: continue
@@ -176,7 +186,11 @@ class EpubFormatProvider : FormatProvider {
                 val bytes = readZipEntry(zip, item.path) ?: continue
                 val html = EpubArchive.fromEntries(mapOf(item.path to bytes)).text(item.path)
                     ?: continue
-                val text = XhtmlText.extract(html)
+                val text = XhtmlText.extract(
+                    html,
+                    compactParagraphs = packageInfo.metadata.language
+                        ?.startsWith("zh", ignoreCase = true) == true,
+                )
                 if (text.isBlank()) continue
                 if (hasContent) total += 2
                 total += text.length
@@ -283,34 +297,78 @@ class EpubFormatProvider : FormatProvider {
         val navBlock = Regex(
             """(?is)<nav\b[^>]*epub:type\s*=\s*["'][^"']*\btoc\b[^"']*["'][^>]*>(.*?)</nav\s*>""",
         ).find(html)?.groupValues?.get(1) ?: html
-        val anchorPattern = Regex(
-            """(?is)<a\b[^>]*href\s*=\s*["']([^"']+)["'][^>]*>(.*?)</a\s*>""",
+        val tokenPattern = Regex(
+            """(?is)<[ou]l\b[^>]*>|</[ou]l\s*>|<a\b[^>]*href\s*=\s*["']([^"']+)["'][^>]*>(.*?)</a\s*>""",
         )
-        return anchorPattern.findAll(navBlock).mapNotNull { match ->
-            val path = EpubArchive.resolve(baseDir, match.groupValues[1]) ?: return@mapNotNull null
-            val title = XhtmlText.stripTags(match.groupValues[2])
-                .replace(Regex("\\s+"), " ")
-                .trim()
-            if (title.isBlank()) null else NavLink(title = title, path = path)
-        }.distinctBy { "${it.path}\u0000${it.title}" }.take(1_000).toList()
+        val links = mutableListOf<NavLink>()
+        var listDepth = 0
+        for (match in tokenPattern.findAll(navBlock)) {
+            val token = match.value
+            when {
+                token.startsWith("<ol", ignoreCase = true) ||
+                    token.startsWith("<ul", ignoreCase = true) -> listDepth += 1
+                token.startsWith("</ol", ignoreCase = true) ||
+                    token.startsWith("</ul", ignoreCase = true) -> {
+                    if (listDepth > 0) listDepth -= 1
+                }
+                else -> {
+                    val href = match.groupValues[1]
+                    val path = EpubArchive.resolve(baseDir, href) ?: continue
+                    val fragment = href.substringAfter('#', "").trim()
+                    val title = XhtmlText.stripTags(match.groupValues[2])
+                        .replace(Regex("\\s+"), " ")
+                        .trim()
+                    if (title.isNotBlank()) {
+                        links.add(
+                            NavLink(
+                                title = title,
+                                path = path,
+                                fragment = fragment,
+                                depth = (listDepth - 1).coerceAtLeast(0),
+                            ),
+                        )
+                    }
+                }
+            }
+            if (links.size >= 1_000) break
+        }
+        return links.distinctBy { "${it.path}\u0000${it.fragment}\u0000${it.title}" }
     }
 
     private fun parseNcx(document: org.w3c.dom.Document, baseDir: String): List<NavLink> {
+        val navMap = EpubXml.first(document.documentElement, "navMap") ?: return emptyList()
         val links = mutableListOf<NavLink>()
-        for (navPoint in EpubXml.elements(document.documentElement, "navPoint")) {
-            val label = EpubXml.first(navPoint, "navLabel")
-                ?.let { EpubXml.first(it, "text") }
-                ?.let(EpubXml::text)
-                ?.trim()
-                .orEmpty()
-            val source = EpubXml.first(navPoint, "content")
-                ?.let { EpubXml.attribute(it, "src") }
-                ?: continue
-            val path = EpubArchive.resolve(baseDir, source) ?: continue
-            if (label.isNotBlank()) links.add(NavLink(label, path))
-            if (links.size >= 1_000) break
+
+        fun visit(parent: org.w3c.dom.Element, depth: Int) {
+            if (links.size >= 1_000) return
+            var child = parent.firstChild
+            while (child != null && links.size < 1_000) {
+                if (child is org.w3c.dom.Element) {
+                    val name = child.localName ?: child.nodeName.substringAfter(':')
+                    if (name == "navPoint") {
+                        val label = EpubXml.first(child, "navLabel")
+                            ?.let { EpubXml.first(it, "text") }
+                            ?.let(EpubXml::text)
+                            ?.trim()
+                            .orEmpty()
+                        val source = EpubXml.first(child, "content")
+                            ?.let { EpubXml.attribute(it, "src") }
+                        if (source != null) {
+                            val path = EpubArchive.resolve(baseDir, source)
+                            val fragment = source.substringAfter('#', "").trim()
+                            if (path != null && label.isNotBlank()) {
+                                links.add(NavLink(label, path, fragment, depth.coerceAtMost(8)))
+                            }
+                        }
+                        visit(child, depth + 1)
+                    }
+                }
+                child = child.nextSibling
+            }
         }
-        return links.distinctBy { "${it.path}\u0000${it.title}" }
+
+        visit(navMap, 0)
+        return links.distinctBy { "${it.path}\u0000${it.fragment}\u0000${it.title}" }
     }
 
     private fun buildDocument(
@@ -327,6 +385,8 @@ class EpubFormatProvider : FormatProvider {
         val chapterImages = mutableListOf<ChapterImage>()
         val chapterStyles = mutableListOf<ChapterStyle>()
         val chapterMarks = mutableListOf<ChapterMark>()
+        val pageBreaks = mutableListOf<Int>()
+        val headingRanges = mutableListOf<IntRange>()
         val resources = LinkedHashMap<String, ByteArray>()
         val anchors = LinkedHashMap<String, Int>()
         val chapterStarts = LinkedHashMap<String, Int>()
@@ -341,7 +401,14 @@ class EpubFormatProvider : FormatProvider {
             .map { item ->
                 val cached = chapterCache[item.path]
                 val html = cached?.html ?: archive.text(item.path) ?: return@map null
-                val rich = cached?.rich ?: XhtmlText.extractRich(html)
+                val rich = cached?.rich ?: run {
+                    val baseDir = EpubArchive.baseDir(item.path)
+                    XhtmlText.extractRich(
+                        withLinkedStyles(html, baseDir) { path -> archive.text(path) },
+                        compactParagraphs = packageInfo.metadata.language
+                            ?.startsWith("zh", ignoreCase = true) == true,
+                    )
+                }
                 if (rich.text.isBlank()) {
                     null
                 } else {
@@ -371,10 +438,27 @@ class EpubFormatProvider : FormatProvider {
             chapterNumber += 1
             chapterStarts[item.path] = offset
             chapterMarks.add(ChapterMark(item.path, offset, chapterText.length, parsed.spineIndex))
+            chapterBreakOffsets(
+                rich = rich,
+                navLinks = navigationByPath[item.path].orEmpty(),
+                hasNavigation = navigation.isNotEmpty(),
+            ).forEach { breakOffset ->
+                pageBreaks.add(localOffset + breakOffset)
+            }
+            rich.headings.forEach { heading ->
+                headingRanges.add(
+                    (localOffset + heading.start) until (localOffset + heading.endExclusive),
+                )
+            }
 
             val baseDir = EpubArchive.baseDir(item.path)
             for (anchor in rich.anchors) {
                 anchors["${item.path}#${anchor.id}"] = offset + anchor.charOffset
+            }
+            for (heading in rich.headings) {
+                heading.id?.let { id ->
+                    anchors["${item.path}#$id"] = offset + heading.start
+                }
             }
             for (link in rich.links) {
                 pendingLinks.add(
@@ -401,7 +485,8 @@ class EpubFormatProvider : FormatProvider {
                     ),
                 )
             }
-            for (style in rich.styles) {
+            val preparedStyles = prepareStyles(rich, packageInfo.metadata.language)
+            for (style in preparedStyles) {
                 chapterStyles.add(
                     ChapterStyle(
                         start = localOffset + style.start,
@@ -413,7 +498,29 @@ class EpubFormatProvider : FormatProvider {
 
             val links = navigationByPath[item.path].orEmpty()
             if (links.isNotEmpty()) {
-                links.forEach { link -> toc.add(TocEntry(link.title, offset)) }
+                links.forEach { link ->
+                    val localTarget = if (link.fragment.isBlank()) {
+                        0
+                    } else {
+                        rich.headings.firstOrNull { it.id == link.fragment }
+                            ?.takeIf { it.level <= 2 }
+                            ?.start
+                            ?: rich.anchors.firstOrNull { it.id == link.fragment }
+                                ?.charOffset
+                                ?.let { anchor -> headingStartForAnchor(rich, anchor) }
+                            ?: 0
+                    }
+                    val candidate = offset + localTarget
+                    val precedingBreak = pageBreaks.lastOrNull { it in offset..candidate }
+                    val target = if (precedingBreak != null &&
+                        onlyHeadingText(rich, precedingBreak - offset, localTarget)
+                    ) {
+                        precedingBreak
+                    } else {
+                        candidate
+                    }
+                    toc.add(TocEntry(link.title, target, link.depth))
+                }
             } else {
                 val title = XhtmlText.title(html) ?: "第${chapterNumber}章"
                 toc.add(TocEntry(title, offset))
@@ -422,6 +529,30 @@ class EpubFormatProvider : FormatProvider {
 
         if (!hasContent) throw BookReadException("EPUB 没有可显示的正文")
         val fullText = text.toString()
+        if (navigation.isNotEmpty()) {
+            toc.clear()
+            navigation.forEach { link ->
+                val key = if (link.fragment.isBlank()) {
+                    link.path
+                } else {
+                    "${link.path}#${link.fragment}"
+                }
+                var target = if (link.fragment.isBlank()) {
+                    chapterStarts[link.path]
+                } else {
+                    anchors[key]
+                } ?: -1
+                if (target > 0) {
+                    val breakOffset = pageBreaks.lastOrNull { it in 0..target }
+                    if (breakOffset != null && breakOffset < target &&
+                        onlyHeadingText(fullText, headingRanges, breakOffset, target)
+                    ) {
+                        target = breakOffset
+                    }
+                }
+                toc.add(TocEntry(link.title, target, link.depth, key))
+            }
+        }
         if (toc.isEmpty()) toc.add(TocEntry("正文", 0))
 
         val links = pendingLinks.mapNotNull { pending ->
@@ -441,11 +572,13 @@ class EpubFormatProvider : FormatProvider {
                 chapterStarts[targetPath]
             } else {
                 anchors["$targetPath#$fragment"]
-            } ?: return@mapNotNull null
+            } ?: -1
+            val targetKey = if (fragment.isBlank()) targetPath else "$targetPath#$fragment"
             ChapterLink(
                 start = pending.start,
                 endExclusive = pending.endExclusive,
                 targetOffset = targetOffset,
+                targetKey = targetKey,
             )
         }
 
@@ -454,6 +587,9 @@ class EpubFormatProvider : FormatProvider {
                 displayName.substringBeforeLast('.').ifBlank { "未命名书籍" }
             },
         )
+        val internalTargets = LinkedHashMap<String, Int>()
+        internalTargets.putAll(chapterStarts)
+        internalTargets.putAll(anchors)
         return BookDocument(
             metadata = metadata,
             formatId = id,
@@ -467,12 +603,280 @@ class EpubFormatProvider : FormatProvider {
                     styles = chapterStyles,
                     links = links,
                     baseOffset = baseOffset,
+                    pageBreaks = pageBreaks.distinct().sorted(),
                 ),
             ),
             toc = toc,
             resources = resources,
             chapterMarks = chapterMarks,
+            internalTargets = internalTargets,
         )
+    }
+
+    private val linkTagPattern = Regex("(?is)<link\\b[^>]*>")
+    private val relPattern = Regex("""(?i)\brel\s*=\s*["']([^"']*)["']""")
+    private val linkHrefPattern = Regex("""(?i)\bhref\s*=\s*["']([^"']*)["']""")
+
+    private data class StyleRange(
+        val start: Int,
+        val endExclusive: Int,
+        val kind: InlineStyleKind,
+    )
+
+    private fun prepareStyles(
+        rich: XhtmlText.RichText,
+        language: String?,
+    ): List<XhtmlText.RichStyle> {
+        val styles = rich.styles.toMutableList()
+        val epigraph = mutableListOf<StyleRange>()
+        for (heading in rich.headings.filter { it.level <= 2 }) {
+            var paragraphIndex = rich.paragraphs.indexOfFirst { it.start >= heading.endExclusive }
+            if (paragraphIndex < 0) continue
+            if (!rich.text.substring(heading.endExclusive, rich.paragraphs[paragraphIndex].start)
+                    .isBlank()
+            ) {
+                continue
+            }
+            val group = mutableListOf<StyleRange>()
+            var sawQuote = false
+            while (paragraphIndex < rich.paragraphs.size) {
+                val paragraph = rich.paragraphs[paragraphIndex]
+                if (paragraph.start < heading.endExclusive) {
+                    paragraphIndex += 1
+                    continue
+                }
+                val quoteText = rich.text.substring(paragraph.start, paragraph.endExclusive).trim()
+                val classes = paragraph.classes.toSet()
+                val sourceLike = paragraph.align == "right" ||
+                    quoteText.startsWith("—") ||
+                    quoteText.startsWith("–") ||
+                    classes.any { it in setOf("source", "cite", "author", "attribution", "lk") }
+                val quoteLike = paragraph.tag == "blockquote" ||
+                    paragraph.leftMarginEm >= 0.8f ||
+                    paragraph.rightMarginEm >= 0.8f ||
+                    paragraph.fontScale < 0.95f ||
+                    classes.any {
+                        it in setOf("epigraph", "quote", "blockquote", "block", "kaiti")
+                    }
+                if (!sourceLike && !quoteLike) break
+                val kind = if (sourceLike) InlineStyleKind.EPIGRAPH_SOURCE else InlineStyleKind.EPIGRAPH
+                if (kind == InlineStyleKind.EPIGRAPH) sawQuote = true
+                group.add(StyleRange(paragraph.start, paragraph.endExclusive, kind))
+                paragraphIndex += 1
+            }
+            if (sawQuote) epigraph.addAll(group)
+        }
+
+        val uniqueEpigraph = epigraph.distinctBy { Triple(it.start, it.endExclusive, it.kind) }
+        val epigraphRanges = uniqueEpigraph.map { it.start until it.endExclusive }
+        styles.removeAll { style ->
+            (style.kind == InlineStyleKind.FIRST_LINE_INDENT || style.kind == InlineStyleKind.INDENT) &&
+                epigraphRanges.any { range ->
+                    style.start < range.last + 1 && style.endExclusive > range.first
+                }
+        }
+        uniqueEpigraph.forEach { range ->
+            styles.add(XhtmlText.RichStyle(range.start, range.endExclusive, range.kind))
+        }
+
+        val blockquoteRanges = rich.paragraphs
+            .filter { it.tag == "blockquote" }
+            .map { it.start until it.endExclusive }
+        if (blockquoteRanges.isNotEmpty()) {
+            styles.removeAll { style ->
+                style.kind == InlineStyleKind.FIRST_LINE_INDENT &&
+                    blockquoteRanges.any { range ->
+                        style.start < range.last + 1 && style.endExclusive > range.first
+                    }
+            }
+        }
+
+        val noteParagraphs = rich.paragraphs.filter { paragraph ->
+            paragraph.classes.any { name ->
+                name == "note" || name == "footnote" || name == "endnote" ||
+                    name == "footnotes" || name == "endnotes"
+            }
+        }
+        if (noteParagraphs.isNotEmpty()) {
+            noteParagraphs.forEach { paragraph ->
+                styles.add(
+                    XhtmlText.RichStyle(
+                        paragraph.start,
+                        paragraph.endExclusive,
+                        InlineStyleKind.NOTE,
+                    ),
+                )
+            }
+            val firstNote = noteParagraphs.first()
+            styles.add(
+                XhtmlText.RichStyle(
+                    firstNote.start,
+                    firstNote.endExclusive,
+                    InlineStyleKind.NOTE_SEPARATOR,
+                ),
+            )
+            styles.removeAll { style ->
+                style.kind == InlineStyleKind.ALIGN_CENTER &&
+                    noteParagraphs.any { note ->
+                        style.start < note.endExclusive && style.endExclusive > note.start
+                    }
+            }
+            styles.removeAll { style ->
+                style.kind == InlineStyleKind.FIRST_LINE_INDENT &&
+                    noteParagraphs.any { note ->
+                        style.start < note.endExclusive && style.endExclusive > note.start
+                    }
+            }
+        }
+
+        if (language?.startsWith("zh", ignoreCase = true) == true) {
+            for (paragraph in rich.paragraphs) {
+                if (paragraph.tag != "p") continue
+                if (paragraph.indentSpecified) continue
+                if (paragraph.align != null && paragraph.align != "left") continue
+                if (paragraph.leftMarginEm > 0.1f || paragraph.rightMarginEm > 0.1f) continue
+                if (paragraph.fontScale < 0.98f) continue
+                if (paragraph.classes.any {
+                        it in setOf(
+                            "center", "right", "note", "img", "image", "caption",
+                            "quote", "epigraph", "poem", "list", "title", "author",
+                        )
+                    }
+                ) {
+                    continue
+                }
+                if (epigraphRanges.any { paragraph.start < it.last + 1 && paragraph.endExclusive > it.first }) {
+                    continue
+                }
+                styles.add(
+                    XhtmlText.RichStyle(
+                        paragraph.start,
+                        paragraph.endExclusive,
+                        InlineStyleKind.FIRST_LINE_INDENT,
+                    ),
+                )
+            }
+        }
+        for (heading in rich.headings.filter { it.level <= 2 }) {
+            val aligned = styles.any { style ->
+                style.kind in setOf(
+                    InlineStyleKind.ALIGN_LEFT,
+                    InlineStyleKind.ALIGN_CENTER,
+                    InlineStyleKind.ALIGN_RIGHT,
+                ) && style.start < heading.endExclusive && style.endExclusive > heading.start
+            }
+            if (!aligned) {
+                styles.add(
+                    XhtmlText.RichStyle(
+                        heading.start,
+                        heading.endExclusive,
+                        InlineStyleKind.ALIGN_CENTER,
+                    ),
+                )
+            }
+        }
+        return styles.sortedWith(compareBy({ it.start }, { it.endExclusive }))
+    }
+
+    private fun withLinkedStyles(
+        html: String,
+        baseDir: String,
+        readCss: (String) -> String?,
+    ): String {
+        val result = StringBuilder(html)
+        for (tag in linkTagPattern.findAll(html)) {
+            val rel = relPattern.find(tag.value)?.groupValues?.get(1).orEmpty()
+            if (!rel.split(Regex("\\s+")).any { it.equals("stylesheet", ignoreCase = true) }) {
+                continue
+            }
+            val href = linkHrefPattern.find(tag.value)?.groupValues?.get(1) ?: continue
+            val path = EpubArchive.resolve(baseDir, href) ?: continue
+            val css = readCss(path) ?: continue
+            result.append("\n<style>\n").append(css).append("\n</style>")
+        }
+        return result.toString()
+    }
+
+    private fun chapterBreakOffsets(
+        rich: XhtmlText.RichText,
+        navLinks: List<NavLink>,
+        hasNavigation: Boolean,
+    ): List<Int> {
+        val headings = rich.headings.filter { it.level <= 2 }
+        val candidates = mutableListOf<Int>()
+        if (navLinks.isNotEmpty()) {
+            for (link in navLinks) {
+                if (link.fragment.isNotBlank()) {
+                    val heading = rich.headings.firstOrNull { it.id == link.fragment }
+                        ?.takeIf { it.level <= 2 }
+                        ?: rich.anchors.firstOrNull { it.id == link.fragment }
+                            ?.charOffset
+                            ?.let { anchor -> headingStartForAnchor(rich, anchor) }
+                            ?.let { start -> headings.firstOrNull { it.start == start } }
+                        ?: continue
+                    candidates.add(heading.start)
+                } else {
+                    val first = headings.firstOrNull()
+                    candidates.add(first?.start ?: 0)
+                }
+            }
+        } else if (!hasNavigation) {
+            candidates.addAll(headings.map { it.start })
+        } else {
+            // A file with no TOC entry may be a continuation of the previous
+            // chapter. Only the top-level heading is safe to break at.
+            headings.firstOrNull { it.level == 1 }?.let { candidates.add(it.start) }
+        }
+
+        val result = mutableListOf<Int>()
+        for (offset in candidates.distinct().sorted()) {
+            if (offset !in 0 until rich.text.length) continue
+            if (result.isEmpty()) {
+                result.add(offset)
+                continue
+            }
+            if (onlyHeadingText(rich, result.last(), offset)) continue
+            result.add(offset)
+        }
+        return result
+    }
+
+    private fun headingStartForAnchor(rich: XhtmlText.RichText, anchor: Int): Int? {
+        rich.headings.firstOrNull { anchor in it.start until it.endExclusive }?.let {
+            return it.start
+        }
+        return rich.headings.firstOrNull { heading ->
+            heading.start >= anchor &&
+                rich.text.substring(anchor, heading.start).isBlank()
+        }?.start
+    }
+
+    private fun onlyHeadingText(
+        text: String,
+        headings: List<IntRange>,
+        from: Int,
+        to: Int,
+    ): Boolean {
+        if (from >= to) return true
+        for (index in from until to) {
+            if (text[index].isWhitespace()) continue
+            if (headings.none { index in it }) return false
+        }
+        return true
+    }
+
+    /** Part title immediately followed by chapter title belongs to one start page. */
+    private fun onlyHeadingText(
+        rich: XhtmlText.RichText,
+        from: Int,
+        to: Int,
+    ): Boolean {
+        if (from >= to) return true
+        for (index in from until to) {
+            if (rich.text[index].isWhitespace()) continue
+            if (rich.headings.none { index in it.start until it.endExclusive }) return false
+        }
+        return true
     }
 
     private data class ManifestItem(
@@ -493,6 +897,8 @@ class EpubFormatProvider : FormatProvider {
     private data class NavLink(
         val title: String,
         val path: String,
+        val fragment: String = "",
+        val depth: Int = 0,
     )
 
     private data class PendingLink(

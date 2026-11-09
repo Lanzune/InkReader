@@ -160,4 +160,249 @@ internal object EpubFixture {
         }
         return output.toByteArray()
     }
+
+    /** One XHTML file with a part heading, a chapter heading and a later chapter. */
+    fun createSingleFileChapters(): ByteArray {
+        val output = ByteArrayOutputStream()
+        ZipOutputStream(output).use { zip ->
+            zip.putNextEntry(ZipEntry("mimetype"))
+            zip.write("application/epub+zip".toByteArray())
+            zip.closeEntry()
+            zip.putNextEntry(ZipEntry("META-INF/container.xml"))
+            zip.write(
+                """
+                <?xml version="1.0" encoding="UTF-8"?>
+                <container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container">
+                  <rootfiles><rootfile full-path="OEBPS/content.opf" media-type="application/oebps-package+xml"/></rootfiles>
+                </container>
+                """.trimIndent().toByteArray(),
+            )
+            zip.closeEntry()
+            zip.putNextEntry(ZipEntry("OEBPS/content.opf"))
+            zip.write(
+                """
+                <?xml version="1.0" encoding="UTF-8"?>
+                <package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="bookid">
+                  <metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
+                    <dc:identifier id="bookid">urn:test:single</dc:identifier>
+                    <dc:title>Single File</dc:title>
+                    <dc:language>zh-CN</dc:language>
+                  </metadata>
+                  <manifest>
+                    <item id="nav" href="nav.xhtml" media-type="application/xhtml+xml" properties="nav"/>
+                    <item id="style" href="style.css" media-type="text/css"/>
+                    <item id="c1" href="book.xhtml" media-type="application/xhtml+xml"/>
+                  </manifest>
+                  <spine><itemref idref="c1"/></spine>
+                </package>
+                """.trimIndent().toByteArray(),
+            )
+            zip.closeEntry()
+            zip.putNextEntry(ZipEntry("OEBPS/nav.xhtml"))
+            zip.write(
+                """
+                <html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops">
+                  <body><nav epub:type="toc"><ol>
+                    <li><a href="book.xhtml#part">第一部</a>
+                      <ul>
+                        <li><a href="book.xhtml#ch1">第一章</a></li>
+                        <li><a href="book.xhtml#ch2">第二章</a></li>
+                      </ul>
+                    </li>
+                  </ol></nav></body>
+                </html>
+                """.trimIndent().toByteArray(),
+            )
+            zip.closeEntry()
+            zip.putNextEntry(ZipEntry("OEBPS/style.css"))
+            zip.write(
+                """
+                h1 { text-align: center; }
+                h2 { text-align: center; }
+                p { text-indent: 2em; }
+                """.trimIndent().toByteArray(),
+            )
+            zip.closeEntry()
+            zip.putNextEntry(ZipEntry("OEBPS/book.xhtml"))
+            zip.write(
+                """
+                <html><head><title>Single File</title><link rel="stylesheet" href="style.css"/></head><body>
+                  <h1 id="part">第一部</h1>
+                  <h2 id="ch1">第一章</h2>
+                  <p>第一章正文。</p>
+                  <h2 id="ch2">第二章</h2>
+                  <p>第二章正文。</p>
+                  <hr/>
+                  <p class="note">[1] 注文。</p>
+                </body></html>
+                """.trimIndent().toByteArray(),
+            )
+            zip.closeEntry()
+        }
+        return output.toByteArray()
+    }
+
+    /** No NAV/NCX at all: headings are the only chapter structure. */
+    fun createNoNavigation(language: String = "zh-CN"): ByteArray {
+        val output = ByteArrayOutputStream()
+        ZipOutputStream(output).use { zip ->
+            zip.putNextEntry(ZipEntry("mimetype"))
+            zip.write("application/epub+zip".toByteArray())
+            zip.closeEntry()
+            zip.putNextEntry(ZipEntry("META-INF/container.xml"))
+            zip.write(
+                """
+                <?xml version="1.0" encoding="UTF-8"?>
+                <container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container">
+                  <rootfiles><rootfile full-path="OEBPS/content.opf" media-type="application/oebps-package+xml"/></rootfiles>
+                </container>
+                """.trimIndent().toByteArray(),
+            )
+            zip.closeEntry()
+            zip.putNextEntry(ZipEntry("OEBPS/content.opf"))
+            zip.write(
+                """
+                <?xml version="1.0" encoding="UTF-8"?>
+                <package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="bookid">
+                  <metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
+                    <dc:identifier id="bookid">urn:test:nonav</dc:identifier>
+                    <dc:title>No Navigation</dc:title>
+                    <dc:language>$language</dc:language>
+                  </metadata>
+                  <manifest>
+                    <item id="c1" href="book.xhtml" media-type="application/xhtml+xml"/>
+                  </manifest>
+                  <spine><itemref idref="c1"/></spine>
+                </package>
+                """.trimIndent().toByteArray(),
+            )
+            zip.closeEntry()
+            zip.putNextEntry(ZipEntry("OEBPS/book.xhtml"))
+            zip.write(
+                """
+                <html><body>
+                  <h2>第一章</h2><p>第一章正文。</p>
+                  <h2>第二章</h2><p>第二章正文。</p>
+                </body></html>
+                """.trimIndent().toByteArray(),
+            )
+            zip.closeEntry()
+        }
+        return output.toByteArray()
+    }
+
+    /** Chapter-start blockquote epigraph plus a normal blockquote in the body. */
+    fun createEpigraphBook(): ByteArray {
+        val output = ByteArrayOutputStream()
+        ZipOutputStream(output).use { zip ->
+            zip.putNextEntry(ZipEntry("mimetype"))
+            zip.write("application/epub+zip".toByteArray())
+            zip.closeEntry()
+            zip.putNextEntry(ZipEntry("META-INF/container.xml"))
+            zip.write(
+                """
+                <?xml version="1.0" encoding="UTF-8"?>
+                <container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container">
+                  <rootfiles><rootfile full-path="OEBPS/content.opf" media-type="application/oebps-package+xml"/></rootfiles>
+                </container>
+                """.trimIndent().toByteArray(),
+            )
+            zip.closeEntry()
+            zip.putNextEntry(ZipEntry("OEBPS/content.opf"))
+            zip.write(
+                """
+                <?xml version="1.0" encoding="UTF-8"?>
+                <package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="bookid">
+                  <metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
+                    <dc:identifier id="bookid">urn:test:epigraph</dc:identifier>
+                    <dc:title>Epigraph</dc:title>
+                    <dc:language>zh-CN</dc:language>
+                  </metadata>
+                  <manifest>
+                    <item id="c1" href="book.xhtml" media-type="application/xhtml+xml"/>
+                  </manifest>
+                  <spine><itemref idref="c1"/></spine>
+                </package>
+                """.trimIndent().toByteArray(),
+            )
+            zip.closeEntry()
+            zip.putNextEntry(ZipEntry("OEBPS/book.xhtml"))
+            zip.write(
+                """
+                <html><body>
+                  <h1>第一章</h1>
+                  <blockquote><p>章首引语。</p><p>——作者</p></blockquote>
+                  <p>正文第一段。<a id="w1"></a><a href="#m1">[1]</a></p>
+                  <blockquote><p>正文中的引用。</p></blockquote>
+                  <p>正文第二段。</p>
+                  <hr/>
+                  <p class="note"><a id="m1"></a><a href="#w1">[1]</a> 注文。</p>
+                </body></html>
+                """.trimIndent().toByteArray(),
+            )
+            zip.closeEntry()
+        }
+        return output.toByteArray()
+    }
+
+    /** A logical chapter that continues in a second spine file with no TOC entry. */
+    fun createContinuationFiles(): ByteArray {
+        val output = ByteArrayOutputStream()
+        ZipOutputStream(output).use { zip ->
+            zip.putNextEntry(ZipEntry("mimetype"))
+            zip.write("application/epub+zip".toByteArray())
+            zip.closeEntry()
+            zip.putNextEntry(ZipEntry("META-INF/container.xml"))
+            zip.write(
+                """
+                <?xml version="1.0" encoding="UTF-8"?>
+                <container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container">
+                  <rootfiles><rootfile full-path="OEBPS/content.opf" media-type="application/oebps-package+xml"/></rootfiles>
+                </container>
+                """.trimIndent().toByteArray(),
+            )
+            zip.closeEntry()
+            zip.putNextEntry(ZipEntry("OEBPS/content.opf"))
+            zip.write(
+                """
+                <?xml version="1.0" encoding="UTF-8"?>
+                <package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="bookid">
+                  <metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
+                    <dc:identifier id="bookid">urn:test:continuation</dc:identifier>
+                    <dc:title>Continuation</dc:title>
+                  </metadata>
+                  <manifest>
+                    <item id="nav" href="nav.xhtml" media-type="application/xhtml+xml" properties="nav"/>
+                    <item id="c1" href="a.xhtml" media-type="application/xhtml+xml"/>
+                    <item id="c2" href="b.xhtml" media-type="application/xhtml+xml"/>
+                  </manifest>
+                  <spine><itemref idref="c1"/><itemref idref="c2"/></spine>
+                </package>
+                """.trimIndent().toByteArray(),
+            )
+            zip.closeEntry()
+            zip.putNextEntry(ZipEntry("OEBPS/nav.xhtml"))
+            zip.write(
+                """
+                <html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops">
+                  <body><nav epub:type="toc"><ol>
+                    <li><a href="a.xhtml#ch1">第一章</a></li>
+                  </ol></nav></body>
+                </html>
+                """.trimIndent().toByteArray(),
+            )
+            zip.closeEntry()
+            zip.putNextEntry(ZipEntry("OEBPS/a.xhtml"))
+            zip.write(
+                "<html><body><h1 id=\"ch1\">第一章</h1><p>前半。</p></body></html>".toByteArray(),
+            )
+            zip.closeEntry()
+            zip.putNextEntry(ZipEntry("OEBPS/b.xhtml"))
+            zip.write(
+                "<html><body><h2>续章</h2><p>后半。</p></body></html>".toByteArray(),
+            )
+            zip.closeEntry()
+        }
+        return output.toByteArray()
+    }
 }

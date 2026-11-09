@@ -1,10 +1,10 @@
 # InkReader 文档索引
 
-> 当前阶段：**M9.1/M9.2 完成：百分比内核 + 页码插件（0.9.0）**
+> 当前阶段：**M9.6 完成：目录层级、内部链接与脚注（0.9.3）**
 >
 > 内部代号：`InkReader`。正式名称、包名和 GitHub 仓库地址待定，不影响当前开发。
 >
-> 性能：[phase 1](quality/2026-11-08-perf-phase1.md) · 大书：[m8d-large-and-matrix](quality/2026-11-08-m8d-large-and-matrix.md) · 百分比插件：[m9-percent-plugin](quality/2026-11-08-m9-percent-plugin.md) · 插件开发：[plugin-dev](plugin-dev.md)。
+> 性能：[phase 1](quality/2026-11-08-perf-phase1.md) · 大书：[m8d-large-and-matrix](quality/2026-11-08-m8d-large-and-matrix.md) · 百分比插件：[m9-percent-plugin](quality/2026-11-08-m9-percent-plugin.md) · 章节分页：[chapter-pagination](quality/2026-11-09-chapter-pagination.md) · EPUB 排版：[epub-typography](quality/2026-11-09-epub-typography.md) · 导航与脚注：[navigation-footnotes](quality/2026-11-10-navigation-footnotes.md) · 插件开发：[plugin-dev](plugin-dev.md)。
 > 测试：[bench-open](../scripts/bench-open.ps1)。
 > 插件开发：[plugin-dev](plugin-dev.md)；示例：[examples/paper-theme](../examples/paper-theme/)。
 > 许可证：[LICENSE](../LICENSE) · [说明](../LICENSE.md) · [NOTICE](../NOTICE)。
